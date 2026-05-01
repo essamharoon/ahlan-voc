@@ -1,0 +1,88 @@
+package com.fbint.collector.data.remote.dto
+
+import com.squareup.moshi.JsonClass
+
+@JsonClass(generateAdapter = true)
+data class SurveyListEnvelope(val data: List<SurveyDto>)
+
+@JsonClass(generateAdapter = true)
+data class SurveyEnvelope(val data: SurveyDto)
+
+/**
+ * Mirrors the Formbricks v1 Management API survey shape. Optional fields use defaults so
+ * partial responses don't crash deserialization. Newer block/element-shape surveys are not yet
+ * supported (the v1 endpoint still returns the deprecated `questions[]` shape).
+ */
+@JsonClass(generateAdapter = true)
+data class SurveyDto(
+    val id: String,
+    val name: String,
+    val type: String? = null,
+    val status: String? = null,
+    val environmentId: String,
+    val createdAt: String? = null,
+    val updatedAt: String? = null,
+    val questions: List<QuestionDto> = emptyList(),
+    val welcomeCard: WelcomeCardDto? = null,
+    val endings: List<EndingDto> = emptyList(),
+    val languages: List<LanguageDto> = emptyList(),
+    val showLanguageSwitch: Boolean? = null,
+    val hiddenFields: HiddenFieldsDto? = null,
+    val variables: List<VariableDto> = emptyList(),
+    val isBackButtonHidden: Boolean? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class WelcomeCardDto(
+    val enabled: Boolean = false,
+    val headline: Map<String, String>? = null,
+    val html: Map<String, String>? = null,
+    val buttonLabel: Map<String, String>? = null,
+    val fileUrl: String? = null,
+)
+
+/**
+ * Endings come in two shapes — endScreen (terminal "thank you" card) and redirectToUrl (open
+ * a URL). The runner queues redirects until network is available.
+ */
+@JsonClass(generateAdapter = true)
+data class EndingDto(
+    val id: String,
+    val type: String? = null,
+    val headline: Map<String, String>? = null,
+    val subheader: Map<String, String>? = null,
+    val buttonLabel: Map<String, String>? = null,
+    val buttonLink: String? = null,
+    val imageUrl: String? = null,
+    val videoUrl: String? = null,
+    val url: String? = null,
+    val label: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class LanguageDto(
+    val language: LanguageCodeDto? = null,
+    val default: Boolean = false,
+    val enabled: Boolean = true,
+)
+
+@JsonClass(generateAdapter = true)
+data class LanguageCodeDto(
+    val id: String? = null,
+    val code: String,
+    val alias: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class HiddenFieldsDto(
+    val enabled: Boolean = false,
+    val fieldIds: List<String> = emptyList(),
+)
+
+@JsonClass(generateAdapter = true)
+data class VariableDto(
+    val id: String,
+    val name: String,
+    val type: String,             // "number" | "text"
+    val value: Any? = null,
+)

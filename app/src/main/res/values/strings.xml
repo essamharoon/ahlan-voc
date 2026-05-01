@@ -1,0 +1,13 @@
+<resources>
+    <string name="app_name">Ahlan VOC</string>
+    <string name="role_admin">I\'m an admin (set up devices)</string>
+    <string name="role_surveyor">I\'m a surveyor (collect responses)</string>
+    <string name="hint_base_url">Base URL (e.g. https://ksa.formbricks.com)</string>
+    <string name="hint_api_key">API key (x-api-key)</string>
+    <string name="hint_environment_id">Environment ID</string>
+    <string name="hint_surveyor_id">Your name or staff ID</string>
+    <string name="action_validate">Validate &amp; continue</string>
+    <string name="action_generate_qr">Generate setup QR</string>
+    <string name="action_scan_qr">Scan setup QR</string>
+    <string name="action_sync_now">Sync now</string>
+</resources>
