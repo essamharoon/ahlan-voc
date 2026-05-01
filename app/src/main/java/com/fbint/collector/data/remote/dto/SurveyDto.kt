@@ -30,6 +30,37 @@ data class SurveyDto(
     val hiddenFields: HiddenFieldsDto? = null,
     val variables: List<VariableDto> = emptyList(),
     val isBackButtonHidden: Boolean? = null,
+    val styling: StylingDto? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class StylingDto(
+    val roundness: Int? = null,
+    val background: BackgroundDto? = null,
+    val brandColor: ColorTokenDto? = null,
+    val questionColor: ColorTokenDto? = null,
+    val inputColor: ColorTokenDto? = null,
+    val inputTextColor: ColorTokenDto? = null,
+    val buttonBgColor: ColorTokenDto? = null,
+    val buttonTextColor: ColorTokenDto? = null,
+    val buttonBorderColor: ColorTokenDto? = null,
+    val optionBgColor: ColorTokenDto? = null,
+    val cardBgColor: ColorTokenDto? = null,
+    val cardBorderColor: ColorTokenDto? = null,
+    val isLogoHidden: Boolean? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class BackgroundDto(
+    val bg: String? = null,
+    val bgType: String? = null,
+    val brightness: Int? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class ColorTokenDto(
+    val light: String? = null,
+    val dark: String? = null,
 )
 
 @JsonClass(generateAdapter = true)

@@ -12,21 +12,29 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -61,6 +69,7 @@ fun SurveyListScreen(
                     IconButton(onClick = vm::refresh) {
                         Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
                     }
+                    OverflowMenu(nav = nav, onReset = vm::resetDevice)
                 },
             )
         },
@@ -111,6 +120,47 @@ fun SurveyListScreen(
                 }
             }
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun OverflowMenu(nav: NavHostController, onReset: () -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    var confirmReset by remember { mutableStateOf(false) }
+    IconButton(onClick = { expanded = true }) {
+        Icon(Icons.Filled.MoreVert, contentDescription = "More")
+    }
+    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        DropdownMenuItem(
+            text = { Text("Show setup QR") },
+            onClick = { expanded = false; nav.navigate(Routes.ADMIN_QR) },
+        )
+        DropdownMenuItem(
+            text = { Text("Re-enter API key") },
+            onClick = { expanded = false; nav.navigate(Routes.ADMIN_SETUP) },
+        )
+        DropdownMenuItem(
+            text = { Text("Reset device…") },
+            onClick = { expanded = false; confirmReset = true },
+        )
+    }
+    if (confirmReset) {
+        AlertDialog(
+            onDismissRequest = { confirmReset = false },
+            title = { Text("Reset device?") },
+            text = { Text("This clears the API key, environment, and surveyor ID. Pending responses stay queued. You'll need to scan the QR or re-run admin setup.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmReset = false
+                    onReset()
+                    nav.navigate(Routes.SPLASH) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                }) { Text("Reset") }
+            },
+            dismissButton = { TextButton(onClick = { confirmReset = false }) { Text("Cancel") } },
+        )
     }
 }
 

@@ -1,6 +1,6 @@
 package com.fbint.collector.data.remote
 
-import com.fbint.collector.data.remote.dto.MeEnvelope
+import com.fbint.collector.data.remote.dto.MeDto
 import com.fbint.collector.data.remote.dto.SurveyEnvelope
 import com.fbint.collector.data.remote.dto.SurveyListEnvelope
 import retrofit2.http.GET
@@ -10,7 +10,7 @@ import retrofit2.http.Path
 interface FormbricksManagementApi {
 
     @GET("api/v1/management/me")
-    suspend fun me(@Header("x-api-key") apiKey: String): MeEnvelope
+    suspend fun me(@Header("x-api-key") apiKey: String): MeDto
 
     @GET("api/v1/management/surveys")
     suspend fun listSurveys(@Header("x-api-key") apiKey: String): SurveyListEnvelope

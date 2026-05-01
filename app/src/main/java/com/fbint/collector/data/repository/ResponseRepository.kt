@@ -15,11 +15,14 @@ import javax.inject.Singleton
 @Singleton
 class ResponseRepository @Inject constructor(
     private val dao: ResponseQueueDao,
-    private val api: FormbricksClientApi,
+    private val factory: com.fbint.collector.data.remote.FormbricksApiFactory,
     private val config: ConfigRepository,
     private val files: FileQueueRepository,
     moshi: Moshi,
 ) {
+    /** Resolved per-call so config updates take effect immediately. */
+    private val api: FormbricksClientApi
+        get() = factory.client { config.baseUrl() ?: "https://app.formbricks.com" }
     private val mapAdapter: JsonAdapter<Map<String, Any?>> =
         moshi.adapter(Types.newParameterizedType(Map::class.java, String::class.java, Any::class.java))
     private val variableMapAdapter: JsonAdapter<Map<String, Any?>> = mapAdapter

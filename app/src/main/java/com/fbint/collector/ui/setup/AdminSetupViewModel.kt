@@ -44,8 +44,8 @@ class AdminSetupViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val api = factory.management { s.baseUrl }
-                val me = api.me(s.apiKey).data
-                val projectName = me.product?.name ?: "Formbricks project"
+                val me = api.me(s.apiKey)
+                val projectName = me.project?.name ?: "Formbricks project"
                 config.saveServerConfig(s.baseUrl, s.apiKey, s.environmentId, projectName)
                 _state.update { it.copy(busy = false, successProjectName = projectName) }
                 onSuccess()

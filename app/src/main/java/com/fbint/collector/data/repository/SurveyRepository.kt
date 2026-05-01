@@ -17,13 +17,19 @@ import javax.inject.Singleton
 
 @Singleton
 class SurveyRepository @Inject constructor(
-    private val api: FormbricksManagementApi,
+    private val factory: com.fbint.collector.data.remote.FormbricksApiFactory,
     private val dao: SurveyDao,
     private val config: ConfigRepository,
     @ApplicationContext private val ctx: Context,
     moshi: Moshi,
 ) {
     private val surveyAdapter: JsonAdapter<SurveyDto> = moshi.adapter(SurveyDto::class.java)
+    /**
+     * Resolved per-call so a config update (admin entered a new base URL) takes effect on the
+     * next API call without restarting the app. Factory caches Retrofit per URL so this is cheap.
+     */
+    private val api: FormbricksManagementApi
+        get() = factory.management { config.baseUrl() ?: "https://app.formbricks.com" }
 
     fun observeCachedSurveys(): Flow<List<SurveyEntity>> = dao.observeAll()
 
@@ -37,7 +43,10 @@ class SurveyRepository @Inject constructor(
     suspend fun refresh(): Result<Int> = runCatching {
         val key = requireNotNull(config.apiKey()) { "API key not configured" }
         val envId = requireNotNull(config.environmentId()) { "Environment ID not configured" }
-        val list = api.listSurveys(key).data.filter { it.environmentId == envId }
+        // Skip drafts — surveyors should only see surveys the admin has actually launched.
+        val list = api.listSurveys(key).data
+            .filter { it.environmentId == envId }
+            .filter { it.status?.equals("draft", ignoreCase = true) != true }
 
         val detailed = list.map { summary ->
             val full = if (summary.questions.isEmpty()) {

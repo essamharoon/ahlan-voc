@@ -7,9 +7,6 @@ import com.fbint.collector.data.local.QueuedFileDao
 import com.fbint.collector.data.local.ResponseQueueDao
 import com.fbint.collector.data.local.SurveyDao
 import com.fbint.collector.data.remote.FormbricksApiFactory
-import com.fbint.collector.data.remote.FormbricksClientApi
-import com.fbint.collector.data.remote.FormbricksManagementApi
-import com.fbint.collector.data.repository.ConfigRepository
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import dagger.Module
@@ -40,18 +37,6 @@ object AppModule {
     @Provides @Singleton
     fun provideApiFactory(client: OkHttpClient, moshi: Moshi): FormbricksApiFactory =
         FormbricksApiFactory(client, moshi)
-
-    @Provides @Singleton
-    fun provideManagementApi(
-        config: ConfigRepository,
-        factory: FormbricksApiFactory,
-    ): FormbricksManagementApi = factory.management { config.baseUrl() ?: "https://app.formbricks.com" }
-
-    @Provides @Singleton
-    fun provideClientApi(
-        config: ConfigRepository,
-        factory: FormbricksApiFactory,
-    ): FormbricksClientApi = factory.client { config.baseUrl() ?: "https://app.formbricks.com" }
 
     @Provides @Singleton
     fun provideDatabase(@ApplicationContext ctx: Context): AppDatabase =

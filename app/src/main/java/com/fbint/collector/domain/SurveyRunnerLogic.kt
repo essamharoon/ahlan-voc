@@ -22,16 +22,74 @@ object QType {
     const val RANKING = "ranking"
 }
 
-fun SurveyDto.defaultLanguageCode(): String =
-    languages.firstOrNull { it.default }?.language?.let { it.alias ?: it.code }
-        ?: languages.firstOrNull()?.language?.let { it.alias ?: it.code }
-        ?: "default"
+/**
+ * Friendly display name + i18n-map lookup key for a survey language. Formbricks stores the
+ * default-language translation under the magic key `"default"`, not under the language code,
+ * so the default option's lookupKey is `"default"` even though we display the human alias.
+ *
+ * `isRtl` flips the runner's layout direction when this language is active.
+ */
+data class LanguageOption(val displayName: String, val lookupKey: String, val isRtl: Boolean = false)
 
-fun SurveyDto.enabledLanguageCodes(): List<String> =
-    languages.filter { it.enabled }.mapNotNull { it.language?.let { l -> l.alias ?: l.code } }
+fun SurveyDto.defaultLanguageCode(): String = "default"
 
-fun Map<String, String>?.localized(lang: String): String =
-    this?.get(lang) ?: this?.get("default") ?: this?.values?.firstOrNull().orEmpty()
+fun SurveyDto.languageOptions(): List<LanguageOption> {
+    if (languages.isEmpty()) return listOf(LanguageOption("default", "default"))
+    val opts = mutableListOf<LanguageOption>()
+    val defaultLang = languages.firstOrNull { it.default && it.enabled }
+    if (defaultLang != null) {
+        val display = defaultLang.language?.let { it.alias ?: it.code } ?: "default"
+        opts += LanguageOption(
+            displayName = display,
+            lookupKey = "default",
+            isRtl = defaultLang.language?.code.isRtlCode(),
+        )
+    }
+    languages.filter { it.enabled && !it.default }.forEach { l ->
+        val lang = l.language ?: return@forEach
+        val display = lang.alias ?: lang.code
+        opts += LanguageOption(
+            displayName = display,
+            lookupKey = lang.code,
+            isRtl = lang.code.isRtlCode(),
+        )
+    }
+    return opts.ifEmpty { listOf(LanguageOption("default", "default")) }
+}
+
+/** ISO 639 codes for RTL scripts. Matches "ar", "ar-SA", "he", "fa-IR", etc. */
+private val rtlPrefixes = setOf("ar", "he", "fa", "ur", "ps", "sd", "yi", "iw")
+private fun String?.isRtlCode(): Boolean {
+    if (this.isNullOrBlank()) return false
+    val prefix = substringBefore('-').lowercase()
+    return prefix in rtlPrefixes
+}
+
+/**
+ * Pull a translation out of a Formbricks i18n map. The Formbricks rich-text editor wraps
+ * even plain text in HTML (`<p class="fb-editor-paragraph">…</p>`), so we strip tags and
+ * decode common entities before returning. For richer rendering (bold/italic preserved) we'd
+ * need an AnnotatedString converter — out of scope for v1.
+ */
+fun Map<String, String>?.localized(lang: String): String {
+    val raw = this?.get(lang) ?: this?.get("default") ?: this?.values?.firstOrNull().orEmpty()
+    return raw.stripHtml().trim()
+}
+
+private val tagRegex = Regex("<[^>]+>")
+private val whitespaceRegex = Regex("\\s+")
+
+private fun String.stripHtml(): String {
+    if (!contains('<')) return this
+    return tagRegex.replace(this, "")
+        .replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace(whitespaceRegex, " ")
+}
 
 /**
  * True if the answer satisfies the question's `required` constraint. Branching logic in

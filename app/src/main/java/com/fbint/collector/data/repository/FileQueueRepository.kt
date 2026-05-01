@@ -36,9 +36,13 @@ const val FILE_PLACEHOLDER_PREFIX = "fbint-file:"
 class FileQueueRepository @Inject constructor(
     @ApplicationContext private val ctx: Context,
     private val dao: QueuedFileDao,
-    private val api: FormbricksClientApi,
+    private val factory: com.fbint.collector.data.remote.FormbricksApiFactory,
+    private val config: ConfigRepository,
     private val client: OkHttpClient,
 ) {
+    /** Resolved per-call so config updates take effect immediately. */
+    private val api: FormbricksClientApi
+        get() = factory.client { config.baseUrl() ?: "https://app.formbricks.com" }
     fun pendingCount(): Flow<Int> = dao.pendingCount()
     fun uploadedCount(): Flow<Int> = dao.uploadedCount()
 

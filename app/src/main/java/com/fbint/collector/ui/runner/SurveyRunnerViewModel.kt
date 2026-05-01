@@ -10,11 +10,12 @@ import com.fbint.collector.data.repository.FileQueueRepository
 import com.fbint.collector.data.repository.ResponseRepository
 import com.fbint.collector.data.repository.SurveyRepository
 import com.fbint.collector.domain.LogicContext
+import com.fbint.collector.domain.LanguageOption
 import com.fbint.collector.domain.LogicEngine
 import com.fbint.collector.domain.NextStep
 import com.fbint.collector.domain.defaultLanguageCode
-import com.fbint.collector.domain.enabledLanguageCodes
 import com.fbint.collector.domain.initialAnswer
+import com.fbint.collector.domain.languageOptions
 import com.fbint.collector.domain.isAnswerValid
 import com.fbint.collector.sync.SyncScheduler
 import dagger.assisted.Assisted
@@ -43,7 +44,7 @@ data class RunnerState(
     val answers: Map<String, Any?> = emptyMap(),
     val variables: Map<String, Any?> = emptyMap(),
     val language: String = "default",
-    val availableLanguages: List<String> = emptyList(),
+    val availableLanguages: List<LanguageOption> = emptyList(),
     val showLanguageSwitch: Boolean = false,
     val validationError: String? = null,
 )
@@ -81,7 +82,7 @@ class SurveyRunnerViewModel @AssistedInject constructor(
             ctx.hiddenFields.clear()
 
             val lang = survey.defaultLanguageCode()
-            val available = survey.enabledLanguageCodes().ifEmpty { listOf("default") }
+            val available = survey.languageOptions()
             val firstStage = when {
                 survey.welcomeCard?.enabled == true -> RunnerStage.Welcome
                 survey.questions.isEmpty() -> firstEndingOrDone(survey)
@@ -95,7 +96,10 @@ class SurveyRunnerViewModel @AssistedInject constructor(
                     variables = defaults,
                     language = lang,
                     availableLanguages = available,
-                    showLanguageSwitch = (survey.showLanguageSwitch == true) && available.size > 1,
+                    // Show the menu whenever multiple languages exist, regardless of the
+                    // showLanguageSwitch survey-level flag (often null on real surveys, and
+                    // surveyors in the field need to switch languages per respondent).
+                    showLanguageSwitch = available.size > 1,
                 )
             }
         }

@@ -1,21 +1,31 @@
 package com.fbint.collector.ui.runner
 
 import android.content.Intent
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -25,10 +35,14 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.ProgressIndicatorDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,15 +50,24 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import com.fbint.collector.data.remote.dto.EndingDto
 import com.fbint.collector.data.remote.dto.QuestionDto
 import com.fbint.collector.data.remote.dto.SurveyDto
+import com.fbint.collector.domain.LanguageOption
 import com.fbint.collector.domain.QType
+import com.fbint.collector.domain.SurveyStyle
+import com.fbint.collector.domain.computedStyle
 import com.fbint.collector.domain.localized
 import com.fbint.collector.ui.runner.components.AddressQuestion
 import com.fbint.collector.ui.runner.components.CalQuestion
@@ -70,14 +93,23 @@ fun SurveyRunnerScreen(nav: NavHostController, surveyId: String) {
     )
     val state by vm.state.collectAsState()
     val survey = state.survey
+    val style = remember(survey) { survey?.computedStyle() ?: SurveyStyle.Default }
+    val isRtl = state.availableLanguages.firstOrNull { it.lookupKey == state.language }?.isRtl == true
+    val direction = if (isRtl) LayoutDirection.Rtl else LayoutDirection.Ltr
 
+    CompositionLocalProvider(LocalLayoutDirection provides direction) {
     Scaffold(
+        containerColor = style.backgroundColor,
         topBar = {
             TopAppBar(
-                title = { Text(survey?.name ?: "Survey") },
+                title = { Text(survey?.name ?: "Survey", color = style.questionTextColor) },
                 navigationIcon = {
                     IconButton(onClick = { nav.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to list")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back to list",
+                            tint = style.questionTextColor,
+                        )
                     }
                 },
                 actions = {
@@ -86,115 +118,201 @@ fun SurveyRunnerScreen(nav: NavHostController, surveyId: String) {
                             current = state.language,
                             options = state.availableLanguages,
                             onPick = vm::setLanguage,
+                            tint = style.questionTextColor,
                         )
                     }
                 },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = style.backgroundColor,
+                    scrolledContainerColor = style.backgroundColor,
+                    titleContentColor = style.questionTextColor,
+                ),
             )
         },
     ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            ProgressBar(state)
-            Box(modifier = Modifier.weight(1f).fillMaxWidth().padding(16.dp)) {
-                when (val stage = state.stage) {
-                    RunnerStage.Loading, RunnerStage.Submitting ->
-                        Centered { CircularProgressIndicator() }
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .background(style.backgroundColor),
+        ) {
+            ProgressBar(state, style)
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.TopCenter,
+            ) {
+                SurveyCard(style) {
+                    when (val stage = state.stage) {
+                        RunnerStage.Loading, RunnerStage.Submitting ->
+                            Centered { CircularProgressIndicator(color = style.brandColor) }
 
-                    RunnerStage.Welcome ->
-                        WelcomePane(survey, state.language, vm::startFromWelcome)
+                        RunnerStage.Welcome ->
+                            WelcomePane(survey, state.language, style, vm::startFromWelcome)
 
-                    is RunnerStage.Question -> {
-                        val q = vm.currentQuestion() ?: return@Box
-                        QuestionPane(
-                            question = q,
-                            lang = state.language,
-                            answer = vm.questionInitialAnswer(q),
-                            error = state.validationError,
-                            onAnswer = { vm.setAnswer(q.id, it) },
-                            delegate = vm,
-                        )
+                        is RunnerStage.Question -> {
+                            val q = vm.currentQuestion() ?: return@SurveyCard
+                            QuestionPane(
+                                survey = survey!!,
+                                question = q,
+                                lang = state.language,
+                                style = style,
+                                answer = vm.questionInitialAnswer(q),
+                                error = state.validationError,
+                                onAnswer = { vm.setAnswer(q.id, it) },
+                                delegate = vm,
+                            )
+                        }
+
+                        is RunnerStage.Ending -> {
+                            val ending = vm.currentEnding()
+                            EndingPane(
+                                ending = ending,
+                                lang = state.language,
+                                style = style,
+                                onAnother = vm::reset,
+                                onExit = { nav.popBackStack() },
+                            )
+                        }
+
+                        RunnerStage.Done -> DonePane(style, onAnother = vm::reset, onExit = { nav.popBackStack() })
+
+                        is RunnerStage.Error -> Centered {
+                            Text(stage.message, color = style.questionTextColor)
+                        }
                     }
-
-                    is RunnerStage.Ending -> {
-                        val ending = vm.currentEnding()
-                        EndingPane(
-                            ending = ending,
-                            lang = state.language,
-                            onAnother = vm::reset,
-                            onExit = { nav.popBackStack() },
-                        )
-                    }
-
-                    RunnerStage.Done -> DonePane(onAnother = vm::reset, onExit = { nav.popBackStack() })
-
-                    is RunnerStage.Error -> Centered { Text(stage.message) }
                 }
             }
-            FooterButtons(state = state, onBack = vm::back, onNext = vm::next, onStart = vm::startFromWelcome)
+            FooterButtons(state = state, style = style, onBack = vm::back, onNext = vm::next, onStart = vm::startFromWelcome)
         }
+    }
+    }
+}
+
+/** Centered card with a max width — matches the web survey's contained layout, especially on tablet. */
+@Composable
+private fun SurveyCard(style: SurveyStyle, content: @Composable () -> Unit) {
+    Card(
+        shape = RoundedCornerShape(style.cornerRadius),
+        colors = CardDefaults.cardColors(containerColor = style.cardColor),
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+        modifier = Modifier
+            .widthIn(max = 720.dp)
+            .padding(horizontal = 24.dp, vertical = 12.dp)
+            .fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(28.dp)
+                .heightIn(min = 320.dp),
+        ) { content() }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun LanguageMenu(current: String, options: List<String>, onPick: (String) -> Unit) {
+private fun LanguageMenu(
+    current: String,
+    options: List<LanguageOption>,
+    onPick: (String) -> Unit,
+    tint: Color,
+) {
     var expanded by remember { mutableStateOf(false) }
+    val currentDisplay = options.firstOrNull { it.lookupKey == current }?.displayName ?: current
     IconButton(onClick = { expanded = true }) {
-        Icon(Icons.Filled.Language, contentDescription = "Language: $current")
+        Icon(Icons.Filled.Language, contentDescription = "Language: $currentDisplay", tint = tint)
     }
     DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-        options.forEach { code ->
+        options.forEach { opt ->
+            val marker = if (opt.lookupKey == current) "  •  current" else ""
             DropdownMenuItem(
-                text = { Text(if (code == current) "$code  •  current" else code) },
-                onClick = { expanded = false; onPick(code) },
+                text = { Text(opt.displayName + marker) },
+                onClick = { expanded = false; onPick(opt.lookupKey) },
             )
         }
     }
 }
 
 @Composable
-private fun ProgressBar(state: RunnerState) {
+private fun ProgressBar(state: RunnerState, style: SurveyStyle) {
     val survey = state.survey ?: return
     val total = survey.questions.size.coerceAtLeast(1)
     val current = (state.stage as? RunnerStage.Question)?.let { stage ->
         survey.questions.indexOfFirst { it.id == stage.questionId }
-    } ?: return
-    if (current < 0) return
+    } ?: -1
+    val progress = if (current < 0) 0f else (current + 1f) / total
     LinearProgressIndicator(
-        progress = { (current + 1f) / total },
-        modifier = Modifier.fillMaxWidth(),
+        progress = { progress },
+        color = style.brandColor,
+        trackColor = style.brandColor.copy(alpha = 0.15f),
+        gapSize = 0.dp,
+        drawStopIndicator = {},
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(6.dp),
     )
 }
 
 @Composable
-private fun WelcomePane(survey: SurveyDto?, lang: String, onStart: () -> Unit) {
+private fun WelcomePane(survey: SurveyDto?, lang: String, style: SurveyStyle, onStart: () -> Unit) {
     val card = survey?.welcomeCard ?: return
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.Center,
     ) {
-        Text(card.headline.localized(lang), style = MaterialTheme.typography.headlineSmall)
+        Text(
+            card.headline.localized(lang),
+            color = style.questionTextColor,
+            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.SemiBold),
+        )
         Spacer(Modifier.height(12.dp))
-        val body = card.html?.localized(lang)?.replace(Regex("<[^>]+>"), "")
-        if (!body.isNullOrBlank()) Text(body, style = MaterialTheme.typography.bodyMedium)
+        val body = card.html.localized(lang)
+        if (body.isNotBlank()) Text(body, color = style.questionTextColor.copy(alpha = 0.85f))
     }
 }
 
 @Composable
+private fun QuestionHeader(survey: SurveyDto, question: QuestionDto, lang: String, style: SurveyStyle) {
+    val total = survey.questions.size
+    val idx = survey.questions.indexOfFirst { it.id == question.id }.coerceAtLeast(0)
+    Text(
+        text = "Question ${idx + 1} of $total",
+        color = style.brandColor,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Medium,
+    )
+    Spacer(Modifier.height(8.dp))
+    Text(
+        text = question.headline.localized(lang),
+        color = style.questionTextColor,
+        fontSize = 22.sp,
+        fontWeight = FontWeight.SemiBold,
+    )
+    if (!question.subheader.isNullOrEmpty()) {
+        val sub = question.subheader.localized(lang)
+        if (sub.isNotBlank()) {
+            Spacer(Modifier.height(6.dp))
+            Text(text = sub, color = style.questionTextColor.copy(alpha = 0.7f))
+        }
+    }
+    Spacer(Modifier.height(20.dp))
+}
+
+@Composable
 private fun QuestionPane(
+    survey: SurveyDto,
     question: QuestionDto,
     lang: String,
+    style: SurveyStyle,
     answer: Any?,
     error: String?,
     onAnswer: (Any?) -> Unit,
     delegate: FileUploadDelegate,
 ) {
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        Text(question.headline.localized(lang), style = MaterialTheme.typography.titleLarge)
-        if (!question.subheader.isNullOrEmpty()) {
-            Spacer(Modifier.height(4.dp))
-            Text(question.subheader.localized(lang), style = MaterialTheme.typography.bodyMedium)
-        }
-        Spacer(Modifier.height(16.dp))
+        QuestionHeader(survey, question, lang, style)
         when (question.type) {
             QType.OPEN_TEXT -> OpenTextQuestion(question, lang, answer as? String, onAnswer)
             QType.CHOICE_SINGLE -> ChoiceSingleQuestion(question, lang, answer as? String, onAnswer)
@@ -232,7 +350,7 @@ private fun QuestionPane(
                 FileUploadQuestion(question, delegate, answer as? List<String>, onAnswer)
             }
             QType.CAL -> CalQuestion(question, answer as? String, onAnswer)
-            else -> Text("Unsupported question type: ${question.type}")
+            else -> Text("Unsupported question type: ${question.type}", color = style.questionTextColor)
         }
         if (error != null) {
             Spacer(Modifier.height(8.dp))
@@ -242,10 +360,16 @@ private fun QuestionPane(
 }
 
 @Composable
-private fun EndingPane(ending: EndingDto?, lang: String, onAnother: () -> Unit, onExit: () -> Unit) {
+private fun EndingPane(
+    ending: EndingDto?,
+    lang: String,
+    style: SurveyStyle,
+    onAnother: () -> Unit,
+    onExit: () -> Unit,
+) {
     val ctx = LocalContext.current
     if (ending == null) {
-        DonePane(onAnother = onAnother, onExit = onExit)
+        DonePane(style, onAnother = onAnother, onExit = onExit)
         return
     }
     when (ending.type) {
@@ -255,20 +379,20 @@ private fun EndingPane(ending: EndingDto?, lang: String, onAnother: () -> Unit, 
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text(ending.label ?: "Open link", style = MaterialTheme.typography.headlineSmall)
+                Text(
+                    ending.label ?: "Open link",
+                    color = style.questionTextColor,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
                 Spacer(Modifier.height(12.dp))
                 if (!ending.url.isNullOrBlank()) {
-                    Button(
-                        onClick = {
-                            runCatching {
-                                ctx.startActivity(Intent(Intent.ACTION_VIEW, ending.url.toUri()))
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text(ending.url) }
+                    PrimaryButton(text = ending.url, style = style) {
+                        runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, ending.url.toUri())) }
+                    }
                 }
                 Spacer(Modifier.height(24.dp))
-                ActionButtons(onAnother, onExit)
+                ActionButtons(style, onAnother, onExit)
             }
         }
         else -> {
@@ -277,66 +401,110 @@ private fun EndingPane(ending: EndingDto?, lang: String, onAnother: () -> Unit, 
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text(ending.headline.localized(lang).ifBlank { "Thank you" }, style = MaterialTheme.typography.headlineSmall)
+                Text(
+                    ending.headline.localized(lang).ifBlank { "Thank you" },
+                    color = style.questionTextColor,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Center,
+                )
                 if (!ending.subheader.isNullOrEmpty()) {
                     Spacer(Modifier.height(8.dp))
-                    Text(ending.subheader.localized(lang))
+                    Text(
+                        ending.subheader.localized(lang),
+                        color = style.questionTextColor.copy(alpha = 0.7f),
+                        textAlign = TextAlign.Center,
+                    )
                 }
                 Spacer(Modifier.height(24.dp))
-                ActionButtons(onAnother, onExit)
+                ActionButtons(style, onAnother, onExit)
             }
         }
     }
 }
 
 @Composable
-private fun DonePane(onAnother: () -> Unit, onExit: () -> Unit) {
+private fun DonePane(style: SurveyStyle, onAnother: () -> Unit, onExit: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("Saved offline", style = MaterialTheme.typography.headlineSmall)
+        Text(
+            "Saved offline",
+            color = style.questionTextColor,
+            fontSize = 22.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
         Spacer(Modifier.height(8.dp))
-        Text("Will sync as soon as a network is available.")
+        Text(
+            "Will sync as soon as a network is available.",
+            color = style.questionTextColor.copy(alpha = 0.7f),
+        )
         Spacer(Modifier.height(24.dp))
-        ActionButtons(onAnother, onExit)
+        ActionButtons(style, onAnother, onExit)
     }
 }
 
 @Composable
-private fun ActionButtons(onAnother: () -> Unit, onExit: () -> Unit) {
-    Button(onClick = onAnother, modifier = Modifier.fillMaxWidth()) { Text("Collect another response") }
+private fun ActionButtons(style: SurveyStyle, onAnother: () -> Unit, onExit: () -> Unit) {
+    PrimaryButton(text = "Collect another response", style = style, onClick = onAnother)
     Spacer(Modifier.height(8.dp))
-    OutlinedButton(onClick = onExit, modifier = Modifier.fillMaxWidth()) { Text("Back to surveys") }
+    OutlinedButton(
+        onClick = onExit,
+        shape = RoundedCornerShape(style.buttonCornerRadius),
+        modifier = Modifier.fillMaxWidth(),
+    ) { Text("Back to surveys") }
 }
 
 @Composable
 private fun FooterButtons(
     state: RunnerState,
+    style: SurveyStyle,
     onBack: () -> Unit,
     onNext: () -> Unit,
     onStart: () -> Unit,
 ) {
     when (val stage = state.stage) {
-        RunnerStage.Welcome -> Row(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-            Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) { Text("Start") }
+        RunnerStage.Welcome -> Box(modifier = Modifier.fillMaxWidth().padding(24.dp)) {
+            PrimaryButton(text = "Start", style = style, onClick = onStart)
         }
         is RunnerStage.Question -> Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            modifier = Modifier.fillMaxWidth().padding(24.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             val survey = state.survey ?: return
             val canBack = survey.isBackButtonHidden != true
             if (canBack) {
-                OutlinedButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text("Back") }
+                OutlinedButton(
+                    onClick = onBack,
+                    shape = RoundedCornerShape(style.buttonCornerRadius),
+                    modifier = Modifier.weight(1f),
+                ) { Text("Back") }
             }
-            Button(onClick = onNext, modifier = Modifier.weight(1f)) {
-                val isLast = survey.questions.indexOfFirst { it.id == stage.questionId } == survey.questions.lastIndex
-                Text(if (isLast) "Submit" else "Next")
+            val isLast = survey.questions.indexOfFirst { it.id == stage.questionId } == survey.questions.lastIndex
+            Box(modifier = Modifier.weight(1f)) {
+                PrimaryButton(text = if (isLast) "Submit" else "Next", style = style, onClick = onNext)
             }
         }
         else -> Unit
+    }
+}
+
+@Composable
+private fun PrimaryButton(text: String, style: SurveyStyle, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = style.brandColor,
+            contentColor = style.onBrandColor,
+        ),
+        shape = RoundedCornerShape(style.buttonCornerRadius),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 52.dp),
+    ) {
+        Text(text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
