@@ -56,7 +56,7 @@ object AppModule {
     @Provides @Singleton
     fun provideDatabase(@ApplicationContext ctx: Context): AppDatabase =
         Room.databaseBuilder(ctx, AppDatabase::class.java, "fbint.db")
-            .fallbackToDestructiveMigration(true)
+            .fallbackToDestructiveMigration()
             .build()
 
     @Provides fun provideSurveyDao(db: AppDatabase): SurveyDao = db.surveyDao()
