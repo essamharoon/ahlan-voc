@@ -154,6 +154,17 @@ private fun OverflowMenu(
     }
     DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
         DropdownMenuItem(
+            text = {
+                Text(
+                    "Version ${com.fbint.collector.BuildConfig.VERSION_NAME}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            },
+            onClick = {},
+            enabled = false,
+        )
+        DropdownMenuItem(
             text = { Text("Check for update") },
             onClick = { expanded = false; onCheckUpdate() },
         )
