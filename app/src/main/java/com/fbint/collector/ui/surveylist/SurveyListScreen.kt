@@ -52,6 +52,8 @@ fun SurveyListScreen(
     vm: SurveyListViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsState()
+    val updateState by vm.updateState.collectAsState()
+    UpdateDialog(updateState, vm::downloadAndInstall, vm::dismissUpdate)
 
     Scaffold(
         topBar = {
@@ -72,7 +74,7 @@ fun SurveyListScreen(
                     IconButton(onClick = vm::refresh) {
                         Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
                     }
-                    OverflowMenu(nav = nav, onReset = vm::resetDevice)
+                    OverflowMenu(nav = nav, onReset = vm::resetDevice, onCheckUpdate = vm::checkForUpdate)
                 },
             )
         },
@@ -139,13 +141,21 @@ fun SurveyListScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun OverflowMenu(nav: NavHostController, onReset: () -> Unit) {
+private fun OverflowMenu(
+    nav: NavHostController,
+    onReset: () -> Unit,
+    onCheckUpdate: () -> Unit,
+) {
     var expanded by remember { mutableStateOf(false) }
     var confirmReset by remember { mutableStateOf(false) }
     IconButton(onClick = { expanded = true }) {
         Icon(Icons.Filled.MoreVert, contentDescription = "More")
     }
     DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        DropdownMenuItem(
+            text = { Text("Check for update") },
+            onClick = { expanded = false; onCheckUpdate() },
+        )
         DropdownMenuItem(
             text = { Text("Show setup QR") },
             onClick = { expanded = false; nav.navigate(Routes.ADMIN_QR) },
@@ -213,6 +223,80 @@ private fun QueueBanner(
                 Icon(Icons.Filled.CloudSync, contentDescription = "Sync now")
             }
         }
+    }
+}
+
+@Composable
+private fun UpdateDialog(
+    state: com.fbint.collector.ui.surveylist.UpdateUiState,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val info = state.info
+    if (state.checking) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Checking for update…") },
+            text = { CircularProgressIndicator() },
+            confirmButton = {},
+        )
+        return
+    }
+    if (state.errorMessage != null) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("Update check failed") },
+            text = { Text(state.errorMessage) },
+            confirmButton = { TextButton(onClick = onDismiss) { Text("OK") } },
+        )
+        return
+    }
+    if (state.message != null && info == null) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("Up to date") },
+            text = { Text(state.message) },
+            confirmButton = { TextButton(onClick = onDismiss) { Text("OK") } },
+        )
+        return
+    }
+    if (info != null) {
+        AlertDialog(
+            onDismissRequest = { if (!state.downloading) onDismiss() },
+            title = { Text("Update available") },
+            text = {
+                Column {
+                    Text("Installed: v${info.installedVersion}")
+                    Text("Latest: v${info.latestVersion}")
+                    val sizeMb = info.sizeBytes / 1024 / 1024
+                    Text("Download size: ${sizeMb} MB")
+                    if (state.downloading) {
+                        Spacer(Modifier.size(8.dp))
+                        if (state.downloadProgress >= 0) {
+                            androidx.compose.material3.LinearProgressIndicator(
+                                progress = { state.downloadProgress / 100f },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Text("${state.downloadProgress}%")
+                        } else {
+                            androidx.compose.material3.LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        }
+                    }
+                    if (state.message != null) {
+                        Spacer(Modifier.size(8.dp))
+                        Text(state.message)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = onConfirm, enabled = !state.downloading) {
+                    Text(if (state.downloading) "Downloading…" else "Update")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismiss, enabled = !state.downloading) { Text("Later") }
+            },
+        )
     }
 }
 

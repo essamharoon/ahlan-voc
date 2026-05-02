@@ -3,6 +3,8 @@ package com.fbint.collector.ui.surveylist
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.fbint.collector.data.NetworkMonitor
+import com.fbint.collector.data.UpdateChecker
+import com.fbint.collector.data.UpdateInfo
 import com.fbint.collector.data.local.PerSurveyCount
 import com.fbint.collector.data.local.ResponseQueueDao
 import com.fbint.collector.data.local.entity.SurveyEntity
@@ -14,6 +16,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -33,6 +36,15 @@ data class SurveyListState(
     val perSurveyCounts: Map<String, PerSurveyCount> = emptyMap(),
 )
 
+data class UpdateUiState(
+    val checking: Boolean = false,
+    val info: UpdateInfo? = null,
+    val downloading: Boolean = false,
+    val downloadProgress: Int = 0,
+    val errorMessage: String? = null,
+    val message: String? = null,
+)
+
 @HiltViewModel
 class SurveyListViewModel @Inject constructor(
     private val surveyRepo: SurveyRepository,
@@ -40,8 +52,12 @@ class SurveyListViewModel @Inject constructor(
     private val sync: SyncScheduler,
     private val config: ConfigRepository,
     private val responseQueueDao: ResponseQueueDao,
+    private val updateChecker: UpdateChecker,
     networkMonitor: NetworkMonitor,
 ) : ViewModel() {
+
+    private val _update = MutableStateFlow(UpdateUiState())
+    val updateState: StateFlow<UpdateUiState> = _update.asStateFlow()
 
     private val refreshState = MutableStateFlow(false to (null as String?))
 
@@ -99,6 +115,54 @@ class SurveyListViewModel @Inject constructor(
     /** Clears every device-level setting so the splash re-routes to the role picker. */
     fun resetDevice() {
         config.clear()
+    }
+
+    fun checkForUpdate() {
+        if (_update.value.checking || _update.value.downloading) return
+        _update.update { it.copy(checking = true, errorMessage = null, message = null) }
+        viewModelScope.launch {
+            try {
+                val info = updateChecker.check()
+                if (info == null) {
+                    _update.update { it.copy(checking = false, errorMessage = "Couldn't reach GitHub.") }
+                } else if (info.isNewer) {
+                    _update.update { it.copy(checking = false, info = info) }
+                } else {
+                    _update.update { it.copy(checking = false, message = "You're on the latest version (${info.installedVersion}).") }
+                }
+            } catch (t: Throwable) {
+                _update.update { it.copy(checking = false, errorMessage = t.message ?: "Update check failed.") }
+            }
+        }
+    }
+
+    fun dismissUpdate() {
+        _update.update { UpdateUiState() }
+    }
+
+    fun downloadAndInstall() {
+        val info = _update.value.info ?: return
+        if (!updateChecker.canInstallPackages()) {
+            updateChecker.openInstallSettings()
+            _update.update { it.copy(message = "Allow 'install unknown apps' for Ahlan VOC, then tap Update again.") }
+            return
+        }
+        _update.update { it.copy(downloading = true, downloadProgress = 0, errorMessage = null) }
+        viewModelScope.launch {
+            try {
+                val file = updateChecker.download(info.downloadUrl) { pct ->
+                    _update.update { it.copy(downloadProgress = pct) }
+                }
+                if (file == null) {
+                    _update.update { it.copy(downloading = false, errorMessage = "Download failed.") }
+                    return@launch
+                }
+                _update.update { it.copy(downloading = false) }
+                updateChecker.launchInstaller(file)
+            } catch (t: Throwable) {
+                _update.update { it.copy(downloading = false, errorMessage = t.message ?: "Update failed.") }
+            }
+        }
     }
 
     /**

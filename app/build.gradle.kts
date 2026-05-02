@@ -15,8 +15,10 @@ android {
         applicationId = "com.fbint.collector"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        // Bump versionCode + versionName for every release; the in-app updater compares
+        // versionName against the GitHub release tag (after stripping leading "v").
+        versionCode = 2
+        versionName = "0.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }
