@@ -12,6 +12,27 @@ import android.location.Location
  * `time_to_complete_seconds`, `surveyor_pace_today`, `language_used`, `is_offline_capture`,
  * `location`, `location_lat`, `location_lng`, `location_accuracy_m`.
  */
+/**
+ * Hidden-field IDs the runtime fills in automatically. The "Before you start" screen filters
+ * these out so surveyors are never asked to type them; if a survey's only hidden fields are in
+ * this set, that screen is skipped entirely and the runner opens straight away.
+ */
+val AUTO_STAMPED_HIDDEN_FIELD_IDS: Set<String> = setOf(
+    "surveyor_id",
+    "device_install_id",
+    "app_version",
+    "started_at",
+    "submitted_at",
+    "time_to_complete_seconds",
+    "surveyor_pace_today",
+    "language_used",
+    "is_offline_capture",
+    "location",
+    "location_lat",
+    "location_lng",
+    "location_accuracy_m",
+)
+
 data class Instrumentation(
     val startedAtIso: String,
     val submittedAtIso: String,

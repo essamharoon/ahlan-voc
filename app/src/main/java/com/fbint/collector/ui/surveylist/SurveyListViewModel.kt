@@ -102,14 +102,16 @@ class SurveyListViewModel @Inject constructor(
     }
 
     /**
-     * Tap-handler for a survey card: if the survey has hidden fields, route through the
-     * "before you start" capture screen first; otherwise jump straight into the runner.
+     * Tap-handler for a survey card: if the survey has any hidden fields the surveyor needs to
+     * fill manually (i.e. not in [AUTO_STAMPED_HIDDEN_FIELD_IDS]), route through the "before
+     * you start" screen; otherwise jump straight into the runner.
      */
     fun onSurveyTapped(survey: SurveyEntity, nav: androidx.navigation.NavHostController) {
         viewModelScope.launch {
             val full = surveyRepo.loadFromCache(survey.id)
-            val needsHidden = full?.hiddenFields?.enabled == true &&
-                full.hiddenFields.fieldIds.isNotEmpty()
+            val manualFields = full?.hiddenFields?.fieldIds.orEmpty()
+                .filter { it !in com.fbint.collector.data.repository.AUTO_STAMPED_HIDDEN_FIELD_IDS }
+            val needsHidden = full?.hiddenFields?.enabled == true && manualFields.isNotEmpty()
             val route = if (needsHidden) com.fbint.collector.ui.nav.Routes.hiddenFields(survey.id)
                 else com.fbint.collector.ui.nav.Routes.runner(survey.id)
             nav.navigate(route)

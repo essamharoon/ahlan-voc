@@ -30,6 +30,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.NavHostController
+import com.fbint.collector.data.repository.AUTO_STAMPED_HIDDEN_FIELD_IDS
 import com.fbint.collector.data.repository.ConfigRepository
 import com.fbint.collector.data.repository.SurveyRepository
 import com.fbint.collector.ui.nav.Routes
@@ -68,7 +69,10 @@ class HiddenFieldsViewModel @AssistedInject constructor(
                 _state.update { it.copy(loading = false, error = "Survey not in cache.") }
                 return@launch
             }
+            // Only show fields the surveyor needs to fill manually — auto-stamped IDs are
+            // resolved at submit time and must not appear here.
             val fieldIds = survey.hiddenFields?.fieldIds.orEmpty()
+                .filter { it !in AUTO_STAMPED_HIDDEN_FIELD_IDS }
             val pre = config.loadHiddenFields(surveyId, fieldIds)
             _state.update {
                 it.copy(loading = false, surveyName = survey.name, fields = fieldIds, values = pre)
