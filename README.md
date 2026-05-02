@@ -53,6 +53,18 @@ Android app for offline Formbricks survey collection at stadiums in KSA. Surveyo
 
 **Sync status screen** — pending / synced / stuck counts plus a "sync now" button (kicks off both file-upload and response-sync one-shots).
 
+## Install on a phone (no build, no GitHub login)
+
+Scan this QR on the surveyor's Android phone:
+
+![Install QR](docs/install-qr.png)
+
+It downloads the latest signed-by-debug-key APK. The phone will ask "allow installs from this source" once — say yes — then the app installs. Same flow as any sideloaded APK.
+
+If you ever cut a v0.2.0 / v0.3.0 release, **don't regenerate the QR** — it points at GitHub's `latest` redirect, which always serves the most recent release. Surveyors keep using the same printed/projected QR.
+
+Direct URL the QR encodes: <https://github.com/essamharoon/ahlan-voc/releases/latest/download/app-debug.apk>
+
 ## Build
 
 You will need:
