@@ -192,7 +192,10 @@ class SurveyRunnerViewModel @AssistedInject constructor(
                     environmentId = survey.environmentId,
                     data = ctx.answers.toMap().filterValues { it != null },
                     finished = true,
-                    language = _state.value.language,
+                    // Translate our magic "default" lookup key back to the survey's actual
+                    // default language code (e.g. "en-GB"). Formbricks rejects "default" as
+                    // an unknown language → HTTP 400 on submit.
+                    language = resolveServerLanguageCode(),
                     variables = ctx.variables.toMap(),
                     hiddenFields = ctx.hiddenFields.toMap(),
                     autoStampCandidates = candidates,
@@ -205,6 +208,19 @@ class SurveyRunnerViewModel @AssistedInject constructor(
                 _state.update { it.copy(stage = RunnerStage.Error(t.message ?: "Failed to save response")) }
             }
         }
+    }
+
+    /**
+     * Convert our internal language identifier into something the Formbricks server accepts.
+     * The runner uses the magic key `"default"` for i18n lookup against the headline maps, but
+     * the response endpoint expects an actual language code (e.g. `en-GB`) or null.
+     */
+    private fun resolveServerLanguageCode(): String? {
+        val s = _state.value
+        val survey = s.survey ?: return null
+        if (s.language != "default") return s.language
+        val defaultLang = survey.languages.firstOrNull { it.default }?.language
+        return defaultLang?.code  // null if survey has no declared languages
     }
 
     private suspend fun buildInstrumentation(): Instrumentation {
