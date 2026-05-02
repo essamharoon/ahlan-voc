@@ -1,11 +1,14 @@
 package com.fbint.collector.ui.runner.components
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -23,15 +26,19 @@ fun NpsQuestion(
     onAnswer: (Any?) -> Unit,
 ) {
     Column {
+        // 11 chips don't fit on a phone — scroll horizontally rather than wrap.
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             (0..10).forEach { v ->
                 FilterChip(
                     selected = answer == v,
                     onClick = { onAnswer(v) },
                     label = { Text(v.toString()) },
+                    modifier = Modifier.widthIn(min = 44.dp),
                 )
             }
         }

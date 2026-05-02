@@ -33,4 +33,9 @@ interface ResponseQueueDao {
 
     @Query("SELECT * FROM queued_responses ORDER BY capturedAt DESC LIMIT :limit")
     fun recent(limit: Int): Flow<List<QueuedResponseEntity>>
+
+    @Query("SELECT surveyId, COUNT(*) AS total, SUM(CASE WHEN syncedAt IS NULL THEN 1 ELSE 0 END) AS pending FROM queued_responses GROUP BY surveyId")
+    fun observePerSurveyCounts(): Flow<List<PerSurveyCount>>
 }
+
+data class PerSurveyCount(val surveyId: String, val total: Int, val pending: Int)

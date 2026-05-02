@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.fbint.collector.data.remote.dto.EndingDto
 import com.fbint.collector.data.remote.dto.QuestionDto
 import com.fbint.collector.data.remote.dto.SurveyDto
+import com.fbint.collector.data.repository.ConfigRepository
 import com.fbint.collector.data.repository.FileQueueRepository
 import com.fbint.collector.data.repository.ResponseRepository
 import com.fbint.collector.data.repository.SurveyRepository
@@ -55,6 +56,7 @@ class SurveyRunnerViewModel @AssistedInject constructor(
     private val surveyRepo: SurveyRepository,
     private val responseRepo: ResponseRepository,
     private val fileRepo: FileQueueRepository,
+    private val config: ConfigRepository,
     private val sync: SyncScheduler,
 ) : ViewModel(), FileUploadDelegate {
 
@@ -80,6 +82,11 @@ class SurveyRunnerViewModel @AssistedInject constructor(
             ctx.variables.clear(); ctx.variables.putAll(defaults)
             ctx.answers.clear()
             ctx.hiddenFields.clear()
+            // Pre-load any hidden fields the surveyor entered before starting this survey.
+            val hiddenFieldIds = survey.hiddenFields?.fieldIds.orEmpty()
+            if (hiddenFieldIds.isNotEmpty()) {
+                ctx.hiddenFields.putAll(config.loadHiddenFields(survey.id, hiddenFieldIds))
+            }
 
             val lang = survey.defaultLanguageCode()
             val available = survey.languageOptions()

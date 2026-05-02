@@ -60,6 +60,22 @@ class ConfigRepository @Inject constructor(
         prefs.edit().clear().apply()
     }
 
+    /**
+     * Hidden-field values are saved per-survey-id so the next time this surveyor opens the same
+     * survey, the inputs come pre-filled with what they typed last time. They can still edit.
+     * Stored as a flat key-per-field under the prefs key `hidden:<surveyId>:<fieldId>`.
+     */
+    fun saveHiddenFields(surveyId: String, values: Map<String, String>) {
+        val editor = prefs.edit()
+        values.forEach { (fieldId, value) -> editor.putString(hiddenKey(surveyId, fieldId), value) }
+        editor.apply()
+    }
+
+    fun loadHiddenFields(surveyId: String, fieldIds: List<String>): Map<String, String> =
+        fieldIds.associateWith { prefs.getString(hiddenKey(surveyId, it), null).orEmpty() }
+
+    private fun hiddenKey(surveyId: String, fieldId: String) = "hidden:$surveyId:$fieldId"
+
     fun observeOnboardingState(): Flow<OnboardingState> = observePrefs().distinctUntilChanged()
 
     private fun observePrefs(): Flow<OnboardingState> = callbackFlow {

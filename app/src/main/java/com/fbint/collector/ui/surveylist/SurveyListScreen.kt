@@ -1,5 +1,6 @@
 package com.fbint.collector.ui.surveylist
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -10,6 +11,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
@@ -79,6 +82,7 @@ fun SurveyListScreen(
                 pending = state.pendingResponses,
                 synced = state.syncedResponses,
                 struggling = state.strugglingResponses,
+                online = state.online,
                 onSyncNow = vm::syncNow,
             )
             if (state.refreshing) {
@@ -101,11 +105,12 @@ fun SurveyListScreen(
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
                     items(state.surveys, key = { it.id }) { survey ->
+                        val counts = state.perSurveyCounts[survey.id]
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 6.dp)
-                                .clickable { nav.navigate(Routes.runner(survey.id)) },
+                                .clickable { vm.onSurveyTapped(survey, nav) },
                         ) {
                             Column(modifier = Modifier.padding(16.dp)) {
                                 Text(survey.name, style = MaterialTheme.typography.titleMedium)
@@ -114,6 +119,15 @@ fun SurveyListScreen(
                                     "Status: ${survey.status ?: "—"}  •  Type: ${survey.type ?: "—"}",
                                     style = MaterialTheme.typography.bodySmall,
                                 )
+                                if (counts != null) {
+                                    Spacer(Modifier.height(6.dp))
+                                    val syncedNow = counts.total - counts.pending
+                                    Text(
+                                        "Captured: ${counts.total}  •  Synced: $syncedNow  •  Pending: ${counts.pending}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
                             }
                         }
                     }
@@ -165,15 +179,27 @@ private fun OverflowMenu(nav: NavHostController, onReset: () -> Unit) {
 }
 
 @Composable
-private fun QueueBanner(pending: Int, synced: Int, struggling: Int, onSyncNow: () -> Unit) {
-    val color = if (struggling > 0) MaterialTheme.colorScheme.errorContainer
-        else MaterialTheme.colorScheme.surfaceVariant
+private fun QueueBanner(
+    pending: Int,
+    synced: Int,
+    struggling: Int,
+    online: Boolean,
+    onSyncNow: () -> Unit,
+) {
     Card(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    StatusDot(online = online)
+                    androidx.compose.foundation.layout.Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (online) "Online" else "Offline",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
                 Text("Queue: $pending pending  •  $synced synced", style = MaterialTheme.typography.bodyMedium)
                 if (struggling > 0) {
                     Text("$struggling struggling — tap sync to retry", style = MaterialTheme.typography.bodySmall)
@@ -184,4 +210,14 @@ private fun QueueBanner(pending: Int, synced: Int, struggling: Int, onSyncNow: (
             }
         }
     }
+}
+
+@Composable
+private fun StatusDot(online: Boolean) {
+    val color = if (online) androidx.compose.ui.graphics.Color(0xFF16A34A) else androidx.compose.ui.graphics.Color(0xFF9CA3AF)
+    androidx.compose.foundation.layout.Box(
+        modifier = Modifier
+            .size(10.dp)
+            .background(color, androidx.compose.foundation.shape.CircleShape),
+    )
 }

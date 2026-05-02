@@ -19,6 +19,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.fbint.collector.data.repository.ConfigRepository
+import com.fbint.collector.ui.hidden.HiddenFieldsScreen
 import com.fbint.collector.ui.runner.SurveyRunnerScreen
 import com.fbint.collector.ui.setup.AdminSetupScreen
 import com.fbint.collector.ui.setup.QrGenerateScreen
@@ -41,8 +42,10 @@ object Routes {
     const val SURVEYOR_ID = "surveyor/id"
     const val SURVEY_LIST = "surveyList"
     const val RUNNER = "runner/{surveyId}"
+    const val HIDDEN_FIELDS = "hidden/{surveyId}"
     const val SYNC_STATUS = "sync"
     fun runner(id: String) = "runner/$id"
+    fun hiddenFields(id: String) = "hidden/$id"
 }
 
 sealed interface OnboardingState {
@@ -77,6 +80,13 @@ fun AppNav() {
         ) { backStack ->
             val id = backStack.arguments?.getString("surveyId").orEmpty()
             SurveyRunnerScreen(nav, surveyId = id)
+        }
+        composable(
+            route = Routes.HIDDEN_FIELDS,
+            arguments = listOf(navArgument("surveyId") { type = NavType.StringType }),
+        ) { backStack ->
+            val id = backStack.arguments?.getString("surveyId").orEmpty()
+            HiddenFieldsScreen(nav, surveyId = id)
         }
         composable(Routes.SYNC_STATUS) { SyncStatusScreen(nav) }
     }

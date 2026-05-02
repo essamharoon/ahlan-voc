@@ -2,6 +2,9 @@ package com.fbint.collector.ui.surveylist
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.fbint.collector.data.NetworkMonitor
+import com.fbint.collector.data.local.PerSurveyCount
+import com.fbint.collector.data.local.ResponseQueueDao
 import com.fbint.collector.data.local.entity.SurveyEntity
 import com.fbint.collector.data.repository.ConfigRepository
 import com.fbint.collector.data.repository.ResponseRepository
@@ -26,6 +29,8 @@ data class SurveyListState(
     val refreshError: String? = null,
     val projectName: String? = null,
     val surveyorId: String? = null,
+    val online: Boolean = false,
+    val perSurveyCounts: Map<String, PerSurveyCount> = emptyMap(),
 )
 
 @HiltViewModel
@@ -34,6 +39,8 @@ class SurveyListViewModel @Inject constructor(
     private val responseRepo: ResponseRepository,
     private val sync: SyncScheduler,
     private val config: ConfigRepository,
+    private val responseQueueDao: ResponseQueueDao,
+    networkMonitor: NetworkMonitor,
 ) : ViewModel() {
 
     private val refreshState = MutableStateFlow(false to (null as String?))
@@ -44,7 +51,21 @@ class SurveyListViewModel @Inject constructor(
         responseRepo.syncedCount(),
         responseRepo.strugglingCount(),
         refreshState,
-    ) { surveys, pending, synced, struggling, (busy, err) ->
+        networkMonitor.observeOnline(),
+        responseQueueDao.observePerSurveyCounts(),
+    ) { values ->
+        @Suppress("UNCHECKED_CAST")
+        val surveys = values[0] as List<SurveyEntity>
+        val pending = values[1] as Int
+        val synced = values[2] as Int
+        val struggling = values[3] as Int
+        @Suppress("UNCHECKED_CAST")
+        val refresh = values[4] as Pair<Boolean, String?>
+        val busy = refresh.first
+        val err = refresh.second
+        val online = values[5] as Boolean
+        @Suppress("UNCHECKED_CAST")
+        val perSurvey = (values[6] as List<PerSurveyCount>).associateBy { it.surveyId }
         SurveyListState(
             surveys = surveys,
             pendingResponses = pending,
@@ -54,6 +75,8 @@ class SurveyListViewModel @Inject constructor(
             refreshError = err,
             projectName = config.projectName(),
             surveyorId = config.surveyorId(),
+            online = online,
+            perSurveyCounts = perSurvey,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SurveyListState())
 
@@ -76,5 +99,20 @@ class SurveyListViewModel @Inject constructor(
     /** Clears every device-level setting so the splash re-routes to the role picker. */
     fun resetDevice() {
         config.clear()
+    }
+
+    /**
+     * Tap-handler for a survey card: if the survey has hidden fields, route through the
+     * "before you start" capture screen first; otherwise jump straight into the runner.
+     */
+    fun onSurveyTapped(survey: SurveyEntity, nav: androidx.navigation.NavHostController) {
+        viewModelScope.launch {
+            val full = surveyRepo.loadFromCache(survey.id)
+            val needsHidden = full?.hiddenFields?.enabled == true &&
+                full.hiddenFields.fieldIds.isNotEmpty()
+            val route = if (needsHidden) com.fbint.collector.ui.nav.Routes.hiddenFields(survey.id)
+                else com.fbint.collector.ui.nav.Routes.runner(survey.id)
+            nav.navigate(route)
+        }
     }
 }

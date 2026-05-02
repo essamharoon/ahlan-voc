@@ -21,6 +21,13 @@ class LogicContext(
     val hiddenFields: MutableMap<String, Any?> = initialHiddenFields.toMutableMap()
 }
 
+/**
+ * Per-evaluation scratch space carrying the survey + the question whose `logic[]` we're walking.
+ * Needed because comparisons against choice-style answers must translate between choice IDs (used
+ * in the survey editor's static operands) and choice labels (used in the stored answer).
+ */
+private data class EvalScope(val survey: com.fbint.collector.data.remote.dto.SurveyDto, val current: com.fbint.collector.data.remote.dto.QuestionDto)
+
 sealed interface NextStep {
     data class Question(val id: String) : NextStep
     data class Ending(val id: String) : NextStep
@@ -46,10 +53,11 @@ class LogicEngine {
         survey: SurveyDto,
         ctx: LogicContext,
     ): NextStep {
+        val scope = EvalScope(survey, currentQuestion)
         val rules = currentQuestion.logic.orEmpty()
         for (rule in rules) {
-            if (!evaluateGroup(rule.conditions, ctx)) continue
-            applyActions(rule.actions, ctx)
+            if (!evaluateGroup(rule.conditions, ctx, scope)) continue
+            applyActions(rule.actions, ctx, scope)
             val jumpTarget = rule.actions.firstOrNull { it.objective == JUMP }?.target
             if (jumpTarget != null) return resolveTarget(jumpTarget, survey)
         }
@@ -70,14 +78,14 @@ class LogicEngine {
         return NextStep.Done
     }
 
-    private fun applyActions(actions: List<LogicActionDto>, ctx: LogicContext) {
-        for (a in actions) if (a.objective == CALCULATE) applyCalculate(a, ctx)
+    private fun applyActions(actions: List<LogicActionDto>, ctx: LogicContext, scope: EvalScope) {
+        for (a in actions) if (a.objective == CALCULATE) applyCalculate(a, ctx, scope)
     }
 
-    private fun applyCalculate(action: LogicActionDto, ctx: LogicContext) {
+    private fun applyCalculate(action: LogicActionDto, ctx: LogicContext, scope: EvalScope) {
         val varId = action.variableId ?: return
         val current = ctx.variables[varId]
-        val rhs = resolveOperand(action.value, ctx)
+        val rhs = resolveOperand(action.value, ctx, scope)
         val updated: Any? = when (action.operator) {
             "assign" -> rhs
             "concat" -> "${current ?: ""}${rhs ?: ""}"
@@ -93,24 +101,58 @@ class LogicEngine {
         ctx.variables[varId] = updated
     }
 
-    private fun evaluateGroup(group: ConditionGroupDto, ctx: LogicContext): Boolean {
+    private fun evaluateGroup(group: ConditionGroupDto, ctx: LogicContext, scope: EvalScope): Boolean {
         val children = group.conditions
         if (children.isEmpty()) return true
-        val results = children.map { evaluateNode(it, ctx) }
+        val results = children.map { evaluateNode(it, ctx, scope) }
         return if (group.connector.equals("or", ignoreCase = true)) results.any { it } else results.all { it }
     }
 
-    private fun evaluateNode(node: ConditionNodeDto, ctx: LogicContext): Boolean {
+    private fun evaluateNode(node: ConditionNodeDto, ctx: LogicContext, scope: EvalScope): Boolean {
         if (node.connector != null && node.conditions != null) {
             return evaluateGroup(
                 ConditionGroupDto(id = node.id, connector = node.connector, conditions = node.conditions),
                 ctx,
+                scope,
             )
         }
         val op = node.operator ?: return false
-        val left = resolveOperand(node.leftOperand, ctx)
-        val right = node.rightOperand?.let { resolveOperand(it, ctx) }
+        val left = resolveOperand(node.leftOperand, ctx, scope)
+        // For choice questions, the editor stores condition values as choice IDs while answers
+        // store choice labels — translate the static side to a label so equals/includes match.
+        val right = node.rightOperand?.let { translateChoiceIds(it, node.leftOperand, scope) }
+            ?.let { resolveOperand(it, ctx, scope) }
         return applyOperator(op, left, right)
+    }
+
+    /**
+     * If the leftOperand refers to a choice question and the rightOperand is a static literal
+     * matching one of that question's choice IDs, swap the ID for the localized label of that
+     * choice. The default-language label is used (we don't track which language the runner is
+     * displaying; Formbricks stores answers in the active language at submit time, but the
+     * choice's localized label across languages keys to the same logical option).
+     */
+    private fun translateChoiceIds(
+        right: OperandDto,
+        leftOperand: OperandDto?,
+        scope: EvalScope,
+    ): OperandDto {
+        if (right.type != "static") return right
+        val leftType = leftOperand?.type ?: return right
+        if (leftType != "question" && leftType != "element") return right
+        val refQId = leftOperand.value as? String ?: return right
+        val q = scope.survey.questions.firstOrNull { it.id == refQId } ?: return right
+        val choices = q.choices ?: return right
+        val idToLabel: Map<String, String> = choices.associate {
+            it.id to (it.label?.values?.firstOrNull { v -> v.isNotBlank() } ?: it.id)
+        }
+        return when (val v = right.value) {
+            is String -> right.copy(value = idToLabel[v] ?: v)
+            is List<*> -> right.copy(value = v.map { item ->
+                if (item is String) idToLabel[item] ?: item else item
+            })
+            else -> right
+        }
     }
 
     /**
@@ -118,7 +160,8 @@ class LogicEngine {
      * matrix / address / contactInfo answer (e.g. `{ row: <rowId> }` -> picks the column label
      * for that row in a matrix answer; `{ field: "1" }` -> picks index 1 of an address array).
      */
-    private fun resolveOperand(op: OperandDto?, ctx: LogicContext): Any? {
+    @Suppress("UNUSED_PARAMETER")
+    private fun resolveOperand(op: OperandDto?, ctx: LogicContext, scope: EvalScope): Any? {
         if (op == null) return null
         return when (op.type) {
             "static" -> op.value
