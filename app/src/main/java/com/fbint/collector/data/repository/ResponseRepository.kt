@@ -18,6 +18,7 @@ class ResponseRepository @Inject constructor(
     private val factory: com.fbint.collector.data.remote.FormbricksApiFactory,
     private val config: ConfigRepository,
     private val files: FileQueueRepository,
+    private val surveyRepo: SurveyRepository,
     moshi: Moshi,
 ) {
     /** Resolved per-call so config updates take effect immediately. */
@@ -102,6 +103,9 @@ class ResponseRepository @Inject constructor(
                 val variables = variableMapAdapter.fromJson(item.variablesJson.orEmpty().ifBlank { "{}" }) ?: emptyMap()
                 val hidden = hiddenFieldsAdapter.fromJson(item.hiddenFieldsJson.orEmpty().ifBlank { "{}" }) ?: emptyMap()
 
+                // Sanitize the magic "default" language at sync time too — old responses
+                // queued before the language fix shipped still carry it and the server 400s.
+                val sanitizedLang = sanitizeLanguageForServer(item.language, item.surveyId)
                 val req = CreateResponseRequest(
                     surveyId = item.surveyId,
                     finished = item.finished,
@@ -111,7 +115,7 @@ class ResponseRepository @Inject constructor(
                         "source" to "fbint:${item.clientUuid}",
                         "surveyor" to item.surveyorId.orEmpty(),
                     ),
-                    language = item.language,
+                    language = sanitizedLang,
                     variables = variables.takeIf { it.isNotEmpty() },
                     hiddenFields = hidden.takeIf { it.isNotEmpty() },
                 )
@@ -143,6 +147,18 @@ class ResponseRepository @Inject constructor(
     private fun isFatal(t: Throwable): Boolean {
         val msg = t.message.orEmpty()
         return Regex("HTTP 4[0-9]{2}").containsMatchIn(msg) && !msg.contains("HTTP 429")
+    }
+
+    /**
+     * The runner's i18n lookup uses `"default"` as a magic key, but Formbricks rejects that
+     * as an unknown language code. Resolve it to the survey's real default language code (e.g.
+     * `en-GB`) at sync time so old queued responses don't 400 forever.
+     */
+    private suspend fun sanitizeLanguageForServer(stored: String?, surveyId: String): String? {
+        if (stored.isNullOrBlank()) return null
+        if (stored != "default") return stored
+        val survey = surveyRepo.loadFromCache(surveyId) ?: return null
+        return survey.languages.firstOrNull { it.default }?.language?.code
     }
 
     data class SyncOutcome(val synced: Int, val failed: Int, val retry: Boolean)
