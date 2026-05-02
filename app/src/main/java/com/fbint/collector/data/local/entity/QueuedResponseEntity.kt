@@ -24,6 +24,13 @@ data class QueuedResponseEntity(
     val dataJson: String,
     val variablesJson: String? = null,
     val hiddenFieldsJson: String? = null,
+    /**
+     * All auto-stamp candidates captured at submit time, unfiltered. Sync filters this against
+     * the survey's CURRENT cached `hiddenFields.fieldIds` so a response captured before the
+     * admin declared the field IDs in Formbricks still gets its auto-stamps through, as long
+     * as the cache has caught up by sync time.
+     */
+    val autoStampsJson: String? = null,
     val capturedAt: Long,
     val attempts: Int = 0,
     val lastError: String? = null,

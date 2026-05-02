@@ -8,7 +8,7 @@ import com.fbint.collector.data.local.entity.SurveyEntity
 
 @Database(
     entities = [SurveyEntity::class, QueuedResponseEntity::class, QueuedFileEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {

@@ -50,14 +50,15 @@ class ResponseRepository @Inject constructor(
         variables: Map<String, Any?> = emptyMap(),
         hiddenFields: Map<String, Any?> = emptyMap(),
         autoStampCandidates: Map<String, String> = emptyMap(),
-        allowedHiddenFieldIds: Set<String> = emptySet(),
+        @Suppress("UNUSED_PARAMETER") allowedHiddenFieldIds: Set<String> = emptySet(),
     ): String {
         val uuid = UUID.randomUUID().toString()
         val placeholderIds = files.extractFilePlaceholders(data)
         if (placeholderIds.isNotEmpty()) files.bindFilesToResponse(placeholderIds, uuid)
-        val merged: Map<String, Any?> = autoStampCandidates
-            .filterKeys { it in allowedHiddenFieldIds }
-            .filterValues { it.isNotBlank() } + hiddenFields
+        // Store auto-stamps UNFILTERED. Sync filters against the survey's current cached
+        // fieldIds, so a stale-at-capture cache doesn't permanently drop these values —
+        // they survive until the survey definition catches up.
+        val nonBlankAutoStamps = autoStampCandidates.filterValues { it.isNotBlank() }
         dao.insert(
             QueuedResponseEntity(
                 clientUuid = uuid,
@@ -68,7 +69,8 @@ class ResponseRepository @Inject constructor(
                 language = language,
                 dataJson = mapAdapter.toJson(data),
                 variablesJson = variableMapAdapter.toJson(variables),
-                hiddenFieldsJson = hiddenFieldsAdapter.toJson(merged),
+                hiddenFieldsJson = hiddenFieldsAdapter.toJson(hiddenFields),
+                autoStampsJson = mapAdapter.toJson(nonBlankAutoStamps),
                 capturedAt = System.currentTimeMillis(),
             )
         )
@@ -106,11 +108,16 @@ class ResponseRepository @Inject constructor(
                 // Sanitize the magic "default" language at sync time too — old responses
                 // queued before the language fix shipped still carry it and the server 400s.
                 val sanitizedLang = sanitizeLanguageForServer(item.language, item.surveyId)
-                // Hidden field values must be merged INTO the data map keyed by field name.
-                // The server's public client API silently ignores the top-level `hiddenFields`
-                // request field — verified empirically. Question-answer values keep priority
-                // since their keys are CUIDs and won't collide with hidden field names.
-                val mergedData = hidden.filterValues { it != null } + finalData
+                // Filter auto-stamps against the survey's CURRENT cached fieldIds (may have
+                // grown since capture). Then merge into data map — public API ignores the
+                // top-level `hiddenFields` field, values must ride in `data` keyed by field
+                // name. Question-answer keys are CUIDs, hidden field names are admin-chosen
+                // strings, so no collision; explicit answers win over hidden if any clash.
+                val autoStamps: Map<String, Any?> = mapAdapter.fromJson(item.autoStampsJson.orEmpty().ifBlank { "{}" }) ?: emptyMap()
+                val survey = surveyRepo.loadFromCache(item.surveyId)
+                val allowed = survey?.hiddenFields?.fieldIds.orEmpty().toSet()
+                val filteredAutoStamps = autoStamps.filterKeys { it in allowed }
+                val mergedData = filteredAutoStamps + hidden.filterValues { it != null } + finalData
                 val req = CreateResponseRequest(
                     surveyId = item.surveyId,
                     finished = item.finished,
