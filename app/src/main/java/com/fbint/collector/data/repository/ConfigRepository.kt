@@ -56,6 +56,21 @@ class ConfigRepository @Inject constructor(
         prefs.edit().putString(KEY_SURVEYOR_ID, id.trim()).apply()
     }
 
+    /**
+     * Whether the API key has been observed to lack write permission on /management/surveys.
+     * Set to true the first time we see a 401 from a survey-update request, so we stop trying.
+     * Cleared by [clear] (re-onboarding) or [resetWriteAccessProbe] (admin re-validates).
+     */
+    fun apiKeyKnownReadOnly(): Boolean = prefs.getBoolean(KEY_KEY_READONLY, false)
+
+    fun markApiKeyReadOnly() {
+        prefs.edit().putBoolean(KEY_KEY_READONLY, true).apply()
+    }
+
+    fun resetWriteAccessProbe() {
+        prefs.edit().remove(KEY_KEY_READONLY).apply()
+    }
+
     /** Last successful auto-update check (epoch ms). 0 if never. Used to throttle. */
     fun lastUpdateCheckMs(): Long = prefs.getLong(KEY_LAST_UPDATE_CHECK, 0L)
 
@@ -114,5 +129,6 @@ class ConfigRepository @Inject constructor(
         const val KEY_SURVEYOR_ID = "surveyor_id"
         const val KEY_INSTALL_ID = "device_install_id"
         const val KEY_LAST_UPDATE_CHECK = "last_update_check_ms"
+        const val KEY_KEY_READONLY = "api_key_readonly"
     }
 }

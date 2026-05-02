@@ -6,7 +6,9 @@ import coil3.SingletonImageLoader
 import coil3.request.ImageRequest
 import com.fbint.collector.data.local.SurveyDao
 import com.fbint.collector.data.local.entity.SurveyEntity
+import com.fbint.collector.data.remote.FormbricksApiFactory
 import com.fbint.collector.data.remote.FormbricksManagementApi
+import com.fbint.collector.data.remote.dto.HiddenFieldsDto
 import com.fbint.collector.data.remote.dto.SurveyDto
 import com.squareup.moshi.JsonAdapter
 import com.squareup.moshi.Moshi
@@ -17,13 +19,14 @@ import javax.inject.Singleton
 
 @Singleton
 class SurveyRepository @Inject constructor(
-    private val factory: com.fbint.collector.data.remote.FormbricksApiFactory,
+    private val factory: FormbricksApiFactory,
     private val dao: SurveyDao,
     private val config: ConfigRepository,
     @ApplicationContext private val ctx: Context,
     moshi: Moshi,
 ) {
     private val surveyAdapter: JsonAdapter<SurveyDto> = moshi.adapter(SurveyDto::class.java)
+
     /**
      * Resolved per-call so a config update (admin entered a new base URL) takes effect on the
      * next API call without restarting the app. Factory caches Retrofit per URL so this is cheap.
@@ -37,13 +40,13 @@ class SurveyRepository @Inject constructor(
 
     /**
      * Refreshes the local cache: lists all surveys in the configured environment, pulls the
-     * full detail (questions, etc.) for each, persists the JSON, and pre-warms the image
-     * cache so picture-selection / welcome-card images render offline at the venue.
+     * full detail for each, best-effort registers the auto-stamp hidden field IDs server-side
+     * (silent on read-only-key 401), persists the JSON, and pre-warms the image cache so
+     * picture-selection / welcome-card images render offline at the venue.
      */
     suspend fun refresh(): Result<Int> = runCatching {
         val key = requireNotNull(config.apiKey()) { "API key not configured" }
         val envId = requireNotNull(config.environmentId()) { "Environment ID not configured" }
-        // Skip drafts — surveyors should only see surveys the admin has actually launched.
         val list = api.listSurveys(key).data
             .filter { it.environmentId == envId }
             .filter { it.status?.equals("draft", ignoreCase = true) != true }
@@ -52,7 +55,7 @@ class SurveyRepository @Inject constructor(
             val full = if (summary.questions.isEmpty()) {
                 runCatching { api.getSurvey(key, summary.id).data }.getOrDefault(summary)
             } else summary
-            full
+            tryAutoRegisterHiddenFields(key, full)
         }
         dao.upsert(detailed.map { it.toEntity() })
         dao.pruneExcept(detailed.map { it.id })
@@ -63,6 +66,36 @@ class SurveyRepository @Inject constructor(
     suspend fun loadFromCache(id: String): SurveyDto? {
         val entity = dao.getById(id) ?: return null
         return surveyAdapter.fromJson(entity.json)
+    }
+
+    /**
+     * Add any auto-stamp IDs missing from the survey's hidden fields, then PUT the merged set
+     * back to Formbricks. On 401/403 we record that the API key is read-only and stop trying
+     * for the lifetime of this install — admin would need to re-onboard with a write-scope key
+     * (or add the field IDs manually) to make this work.
+     */
+    private suspend fun tryAutoRegisterHiddenFields(apiKey: String, survey: SurveyDto): SurveyDto {
+        if (config.apiKeyKnownReadOnly()) return survey
+        val current = survey.hiddenFields?.fieldIds.orEmpty().toSet()
+        val desired = current + AUTO_STAMPED_HIDDEN_FIELD_IDS
+        if (desired == current) return survey
+        val mergedIds = desired.toList()
+        val body = mapOf("hiddenFields" to mapOf("enabled" to true, "fieldIds" to mergedIds))
+        return try {
+            val resp = api.updateSurvey(apiKey, survey.id, body)
+            when {
+                resp.code() == 401 || resp.code() == 403 -> {
+                    config.markApiKeyReadOnly()
+                    survey
+                }
+                resp.isSuccessful -> survey.copy(
+                    hiddenFields = HiddenFieldsDto(enabled = true, fieldIds = mergedIds),
+                )
+                else -> survey
+            }
+        } catch (_: Throwable) {
+            survey
+        }
     }
 
     /**
