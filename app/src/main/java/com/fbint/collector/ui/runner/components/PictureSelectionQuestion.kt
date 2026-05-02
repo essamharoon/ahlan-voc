@@ -4,14 +4,13 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -26,7 +25,9 @@ import com.fbint.collector.data.remote.dto.QuestionDto
 
 /**
  * Image grid. Stored value is a `string[]` of choice **ids** (length 1 when allowMulti=false).
- * Images are loaded via Coil; the survey-refresh worker pre-warms Coil's disk cache so this
+ * Built as plain rows-of-two rather than a LazyVerticalGrid so it nests safely inside the
+ * runner's vertical scroll — nested vertical-scroll containers swallow gestures (the Back
+ * button taps don't get through). Images are Coil-cached during survey refresh, so this
  * works fully offline at the venue.
  */
 @Composable
@@ -39,38 +40,45 @@ fun PictureSelectionQuestion(
     val multi = question.allowMulti == true
     val selected = answer.orEmpty()
 
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(2),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.fillMaxWidth().height(420.dp),
-    ) {
-        items(choices, key = { it.id }) { choice ->
-            val isSelected = choice.id in selected
-            val borderColor = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent
-            Box(
-                modifier = Modifier
-                    .aspectRatio(1f)
-                    .clip(RoundedCornerShape(12.dp))
-                    .border(3.dp, borderColor, RoundedCornerShape(12.dp))
-                    .clickable {
-                        val next = when {
-                            multi && isSelected -> selected - choice.id
-                            multi -> selected + choice.id
-                            isSelected -> emptyList()
-                            else -> listOf(choice.id)
-                        }
-                        onAnswer(next)
-                    },
-                contentAlignment = Alignment.Center,
+    Column(modifier = Modifier.fillMaxWidth()) {
+        choices.chunked(2).forEach { pair ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                AsyncImage(
-                    model = choice.imageUrl,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
+                pair.forEach { choice ->
+                    val isSelected = choice.id in selected
+                    val borderColor = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .aspectRatio(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .border(3.dp, borderColor, RoundedCornerShape(12.dp))
+                            .clickable {
+                                val next = when {
+                                    multi && isSelected -> selected - choice.id
+                                    multi -> selected + choice.id
+                                    isSelected -> emptyList()
+                                    else -> listOf(choice.id)
+                                }
+                                onAnswer(next)
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        AsyncImage(
+                            model = choice.imageUrl,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                }
+                if (pair.size == 1) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
             }
+            Spacer(Modifier.height(8.dp))
         }
     }
 }
