@@ -118,49 +118,46 @@ class LogicEngine {
         }
         val op = node.operator ?: return false
         val left = resolveOperand(node.leftOperand, ctx, scope)
-        // For choice questions, the editor stores condition values as choice IDs while answers
-        // store choice labels — translate the static side to a label so equals/includes match.
-        val right = node.rightOperand?.let { translateChoiceIds(it, node.leftOperand, scope) }
-            ?.let { resolveOperand(it, ctx, scope) }
+        val right = node.rightOperand?.let { resolveOperand(it, ctx, scope) }
         return applyOperator(op, left, right)
     }
 
     /**
-     * If the leftOperand refers to a choice question and the rightOperand is a static literal
-     * matching one of that question's choice IDs, swap the ID for the localized label of that
-     * choice. The default-language label is used (we don't track which language the runner is
-     * displaying; Formbricks stores answers in the active language at submit time, but the
-     * choice's localized label across languages keys to the same logical option).
+     * For choice questions, the answer stored is the localized label (HTML-stripped), while
+     * the editor's static operands reference choice IDs. Walk the question's choices, strip
+     * HTML on each language variant, and return the matching choice's ID. Falls back to the
+     * raw answer if nothing matches (e.g. for non-choice questions or open-text answers).
      */
-    private fun translateChoiceIds(
-        right: OperandDto,
-        leftOperand: OperandDto?,
-        scope: EvalScope,
-    ): OperandDto {
-        if (right.type != "static") return right
-        val leftType = leftOperand?.type ?: return right
-        if (leftType != "question" && leftType != "element") return right
-        val refQId = leftOperand.value as? String ?: return right
-        val q = scope.survey.questions.firstOrNull { it.id == refQId } ?: return right
-        val choices = q.choices ?: return right
-        val idToLabel: Map<String, String> = choices.associate {
-            it.id to (it.label?.values?.firstOrNull { v -> v.isNotBlank() } ?: it.id)
-        }
-        return when (val v = right.value) {
-            is String -> right.copy(value = idToLabel[v] ?: v)
-            is List<*> -> right.copy(value = v.map { item ->
-                if (item is String) idToLabel[item] ?: item else item
-            })
-            else -> right
+    private fun translateAnswerLabelToId(answer: Any?, choices: List<com.fbint.collector.data.remote.dto.ChoiceDto>): Any? {
+        if (choices.isEmpty()) return answer
+        return when (answer) {
+            is String -> findChoiceIdByLabel(answer, choices) ?: answer
+            is List<*> -> answer.map { item ->
+                if (item is String) findChoiceIdByLabel(item, choices) ?: item else item
+            }
+            else -> answer
         }
     }
+
+    private fun findChoiceIdByLabel(label: String, choices: List<com.fbint.collector.data.remote.dto.ChoiceDto>): String? {
+        val needle = stripHtmlForCompare(label)
+        return choices.firstOrNull { choice ->
+            val labels = choice.label?.values.orEmpty()
+            labels.any { v -> stripHtmlForCompare(v).equals(needle, ignoreCase = true) }
+        }?.id
+    }
+
+    private fun stripHtmlForCompare(s: String): String =
+        s.replace(Regex("<[^>]+>"), "")
+            .replace("&nbsp;", " ")
+            .replace("&amp;", "&")
+            .trim()
 
     /**
      * Operand resolution. `meta.row` and `meta.field` allow logic to inspect a sub-field of a
      * matrix / address / contactInfo answer (e.g. `{ row: <rowId> }` -> picks the column label
      * for that row in a matrix answer; `{ field: "1" }` -> picks index 1 of an address array).
      */
-    @Suppress("UNUSED_PARAMETER")
     private fun resolveOperand(op: OperandDto?, ctx: LogicContext, scope: EvalScope): Any? {
         if (op == null) return null
         return when (op.type) {
@@ -168,13 +165,17 @@ class LogicEngine {
             "question", "element" -> {
                 val id = op.value as? String ?: return null
                 val raw = ctx.answers[id] ?: return null
+                val refQ = scope.survey.questions.firstOrNull { it.id == id }
+                val choiceTranslated = if (refQ?.choices != null) {
+                    translateAnswerLabelToId(raw, refQ.choices)
+                } else raw
                 val rowKey = op.meta?.get("row")
                 val fieldKey = op.meta?.get("field")
                 when {
-                    rowKey != null && raw is Map<*, *> -> raw[rowKey]
-                    fieldKey != null && raw is List<*> -> raw.getOrNull(fieldKey.toIntOrNull() ?: -1)
-                    fieldKey != null && raw is Map<*, *> -> raw[fieldKey]
-                    else -> raw
+                    rowKey != null && choiceTranslated is Map<*, *> -> choiceTranslated[rowKey]
+                    fieldKey != null && choiceTranslated is List<*> -> choiceTranslated.getOrNull(fieldKey.toIntOrNull() ?: -1)
+                    fieldKey != null && choiceTranslated is Map<*, *> -> choiceTranslated[fieldKey]
+                    else -> choiceTranslated
                 }
             }
             "variable" -> ctx.variables[op.value as? String]
