@@ -139,6 +139,40 @@ surveyor entry ──▶ name capture ──▶ Survey list (Room + Coil pre-war
 - Backups (cloud + device transfer) are off so prefs and the local DB never leave the device.
 - File uploads use the Formbricks **private** storage path (`/api/v1/client/{envId}/storage`) — uploaded files inherit Formbricks' configured access controls.
 
+## Hidden fields the app auto-stamps
+
+Every response can carry context the surveyor never types — the app fills these in **only when the matching Hidden Field ID exists on the survey in Formbricks**. Add any of the names below as a Hidden Field in your survey settings to receive that value; surveys that don't declare a name simply skip it. User-entered hidden fields always override the auto-stamps.
+
+| Hidden Field ID | What it captures | Use case |
+|---|---|---|
+| `surveyor_id` | Staff name/ID entered on first launch | Attribution in CSV exports |
+| `device_install_id` | Stable UUID per app install | Detect multiple surveyors sharing one device |
+| `app_version` | Build's `versionName` | Track which build a response came from |
+| `started_at` | ISO timestamp when the runner opened the survey | Time-of-day analysis |
+| `submitted_at` | ISO timestamp at submit | Latency between start and finish |
+| `time_to_complete_seconds` | Seconds between started and submitted | **Primary fake-detection signal** — flag responses below `questionCount × 3` |
+| `surveyor_pace_today` | Count of responses this surveyor has captured today | Burst / fatigue detection |
+| `language_used` | Active runner language at submit (e.g. `default`, `ar-SA`) | Confirms which language the respondent used |
+| `is_offline_capture` | `"true"` if the device had no internet at submit | Separates field captures from venue-WiFi tests |
+| `location` | `"lat,lng"` from the device GPS at submit | Single-field venue placement |
+| `location_lat` | Latitude as a decimal string | Precise mapping |
+| `location_lng` | Longitude as a decimal string | Precise mapping |
+| `location_accuracy_m` | Reported accuracy radius in metres | Filter out poor fixes |
+
+Location stamps require the surveyor to grant location permission once during onboarding. If they deny, the four location fields just stay empty — nothing breaks. Other auto-stamps work without any permission.
+
+### Building a confidence score from these fields
+
+The app does not compute a quality score on the device — that's tamper-bait. Instead, **stamp the raw signals above** and have your Formbricks dashboard (or a sheet) compute the score. A starting rubric:
+
+- `time_to_complete_seconds` < `questionCount × 3` → -40 (rushed)
+- All Likert / rating answers identical (straight-lining) → -30
+- `surveyor_pace_today` over 6/hour for a 5-minute survey → -20
+- `location_lat`/`location_lng` outside venue polygon → -25
+- Same `data` hash twice within an hour from the same `device_install_id` → -50
+
+Score starts at 100; subtract penalties; below 50 = manual review.
+
 ## Known limits
 
 - POST `/responses` is not idempotent — a network blip after server-side success will create a duplicate. We mitigate by including the stable client UUID in `meta.source`; cleanup is manual on the server side.

@@ -1,5 +1,8 @@
 package com.fbint.collector.ui.surveyor
 
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -61,6 +64,12 @@ fun SurveyorIdScreen(
 ) {
     val state by vm.state.collectAsState()
 
+    // Ask for location once during onboarding. If denied, location-based hidden fields just
+    // stay empty for this device — the runner doesn't block on it.
+    val locationLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { /* result ignored — we just record the choice; runner re-checks at submit time */ }
+
     Scaffold(topBar = { TopAppBar(title = { Text("Surveyor identity") }) }) { padding ->
         Column(
             modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
@@ -78,6 +87,12 @@ fun SurveyorIdScreen(
             Spacer(Modifier.height(24.dp))
             Button(
                 onClick = {
+                    locationLauncher.launch(
+                        arrayOf(
+                            Manifest.permission.ACCESS_COARSE_LOCATION,
+                            Manifest.permission.ACCESS_FINE_LOCATION,
+                        )
+                    )
                     vm.save {
                         nav.navigate(Routes.SURVEY_LIST) {
                             popUpTo(Routes.ROLE) { inclusive = true }
@@ -87,6 +102,11 @@ fun SurveyorIdScreen(
                 enabled = state.canSubmit,
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Continue") }
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "We'll ask for location permission next — only used if your survey has a hidden field for location. You can deny if you prefer.",
+                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+            )
         }
     }
 }

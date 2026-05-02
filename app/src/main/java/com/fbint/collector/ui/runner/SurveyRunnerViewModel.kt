@@ -6,10 +6,18 @@ import androidx.lifecycle.viewModelScope
 import com.fbint.collector.data.remote.dto.EndingDto
 import com.fbint.collector.data.remote.dto.QuestionDto
 import com.fbint.collector.data.remote.dto.SurveyDto
+import com.fbint.collector.BuildConfig
+import com.fbint.collector.data.LocationProvider
+import com.fbint.collector.data.NetworkMonitor
+import com.fbint.collector.data.local.ResponseQueueDao
 import com.fbint.collector.data.repository.ConfigRepository
 import com.fbint.collector.data.repository.FileQueueRepository
+import com.fbint.collector.data.repository.Instrumentation
 import com.fbint.collector.data.repository.ResponseRepository
 import com.fbint.collector.data.repository.SurveyRepository
+import com.fbint.collector.data.repository.toCandidateStamps
+import kotlinx.coroutines.flow.first
+import java.time.Instant
 import com.fbint.collector.domain.LogicContext
 import com.fbint.collector.domain.LanguageOption
 import com.fbint.collector.domain.LogicEngine
@@ -58,7 +66,12 @@ class SurveyRunnerViewModel @AssistedInject constructor(
     private val fileRepo: FileQueueRepository,
     private val config: ConfigRepository,
     private val sync: SyncScheduler,
+    private val locationProvider: LocationProvider,
+    private val networkMonitor: NetworkMonitor,
+    private val responseQueueDao: ResponseQueueDao,
 ) : ViewModel(), FileUploadDelegate {
+
+    private var startedAtMs: Long = 0L
 
     private val engine = LogicEngine()
     private val backStack = ArrayDeque<RunnerStage>()
@@ -87,6 +100,7 @@ class SurveyRunnerViewModel @AssistedInject constructor(
             if (hiddenFieldIds.isNotEmpty()) {
                 ctx.hiddenFields.putAll(config.loadHiddenFields(survey.id, hiddenFieldIds))
             }
+            startedAtMs = System.currentTimeMillis()
 
             val lang = survey.defaultLanguageCode()
             val available = survey.languageOptions()
@@ -167,6 +181,12 @@ class SurveyRunnerViewModel @AssistedInject constructor(
         _state.update { it.copy(stage = RunnerStage.Submitting) }
         viewModelScope.launch {
             try {
+                val instrumentation = buildInstrumentation()
+                val candidates = instrumentation.toCandidateStamps(
+                    surveyorId = config.surveyorId(),
+                    deviceInstallId = config.deviceInstallId(),
+                    appVersion = BuildConfig.VERSION_NAME,
+                )
                 responseRepo.enqueue(
                     surveyId = survey.id,
                     environmentId = survey.environmentId,
@@ -175,6 +195,8 @@ class SurveyRunnerViewModel @AssistedInject constructor(
                     language = _state.value.language,
                     variables = ctx.variables.toMap(),
                     hiddenFields = ctx.hiddenFields.toMap(),
+                    autoStampCandidates = candidates,
+                    allowedHiddenFieldIds = survey.hiddenFields?.fieldIds.orEmpty().toSet(),
                 )
                 sync.requestImmediateSync()
                 val finalStage = endingId?.let { RunnerStage.Ending(it) } ?: RunnerStage.Done
@@ -183,6 +205,37 @@ class SurveyRunnerViewModel @AssistedInject constructor(
                 _state.update { it.copy(stage = RunnerStage.Error(t.message ?: "Failed to save response")) }
             }
         }
+    }
+
+    private suspend fun buildInstrumentation(): Instrumentation {
+        val now = System.currentTimeMillis()
+        val started = if (startedAtMs > 0) startedAtMs else now
+        val online = runCatching { networkMonitor.observeOnline().first() }.getOrDefault(false)
+        val location = runCatching { locationProvider.current() }.getOrNull()
+        val pace = runCatching {
+            val sid = config.surveyorId() ?: return@runCatching 0
+            val startOfDay = startOfTodayMs()
+            responseQueueDao.countSince(sid, startOfDay)
+        }.getOrDefault(0)
+        return Instrumentation(
+            startedAtIso = Instant.ofEpochMilli(started).toString(),
+            submittedAtIso = Instant.ofEpochMilli(now).toString(),
+            timeToCompleteSeconds = ((now - started) / 1000L).coerceAtLeast(0),
+            surveyorPaceToday = pace,
+            languageUsed = _state.value.language,
+            isOfflineCapture = !online,
+            location = location,
+        )
+    }
+
+    private fun startOfTodayMs(): Long {
+        val cal = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.HOUR_OF_DAY, 0)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }
+        return cal.timeInMillis
     }
 
     fun reset() {

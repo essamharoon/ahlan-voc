@@ -21,6 +21,7 @@ mlkitBarcode = "17.3.0"
 zxing = "3.5.3"
 coroutines = "1.9.0"
 coil = "3.0.4"
+playLocation = "21.3.0"
 junit = "4.13.2"
 
 [libraries]
@@ -74,6 +75,8 @@ coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutin
 
 coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
 coil-network = { group = "io.coil-kt.coil3", name = "coil-network-okhttp", version.ref = "coil" }
+
+play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playLocation" }
 
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 

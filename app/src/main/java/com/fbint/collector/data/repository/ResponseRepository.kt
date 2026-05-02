@@ -34,9 +34,11 @@ class ResponseRepository @Inject constructor(
     fun recent(limit: Int = 50): Flow<List<QueuedResponseEntity>> = dao.recent(limit)
 
     /**
-     * Capture a response into the local queue. If [data] contains file-upload placeholders
-     * (`fbint-file:<uuid>`), the matching file rows are bound to this response so the upload
-     * pipeline can resolve them later.
+     * Capture a response into the local queue. Auto-stamp candidates ([autoStampCandidates])
+     * are filtered against the survey's declared hidden field IDs ([allowedHiddenFieldIds]) —
+     * keys not present in that whitelist are silently dropped, so a candidate like
+     * `time_to_complete_seconds` is sent only when the admin actually added that hidden field
+     * in Formbricks. User-entered hidden fields take precedence over auto-stamps.
      */
     suspend fun enqueue(
         surveyId: String,
@@ -46,10 +48,15 @@ class ResponseRepository @Inject constructor(
         language: String?,
         variables: Map<String, Any?> = emptyMap(),
         hiddenFields: Map<String, Any?> = emptyMap(),
+        autoStampCandidates: Map<String, String> = emptyMap(),
+        allowedHiddenFieldIds: Set<String> = emptySet(),
     ): String {
         val uuid = UUID.randomUUID().toString()
         val placeholderIds = files.extractFilePlaceholders(data)
         if (placeholderIds.isNotEmpty()) files.bindFilesToResponse(placeholderIds, uuid)
+        val merged: Map<String, Any?> = autoStampCandidates
+            .filterKeys { it in allowedHiddenFieldIds }
+            .filterValues { it.isNotBlank() } + hiddenFields
         dao.insert(
             QueuedResponseEntity(
                 clientUuid = uuid,
@@ -60,7 +67,7 @@ class ResponseRepository @Inject constructor(
                 language = language,
                 dataJson = mapAdapter.toJson(data),
                 variablesJson = variableMapAdapter.toJson(variables),
-                hiddenFieldsJson = hiddenFieldsAdapter.toJson(hiddenFields),
+                hiddenFieldsJson = hiddenFieldsAdapter.toJson(merged),
                 capturedAt = System.currentTimeMillis(),
             )
         )

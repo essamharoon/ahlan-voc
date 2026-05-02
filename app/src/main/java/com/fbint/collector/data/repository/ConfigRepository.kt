@@ -56,6 +56,14 @@ class ConfigRepository @Inject constructor(
         prefs.edit().putString(KEY_SURVEYOR_ID, id.trim()).apply()
     }
 
+    /** Stable per-install UUID. Generated on first read, persists until uninstall. */
+    fun deviceInstallId(): String {
+        prefs.getString(KEY_INSTALL_ID, null)?.let { return it }
+        val id = java.util.UUID.randomUUID().toString()
+        prefs.edit().putString(KEY_INSTALL_ID, id).apply()
+        return id
+    }
+
     fun clear() {
         prefs.edit().clear().apply()
     }
@@ -97,5 +105,6 @@ class ConfigRepository @Inject constructor(
         const val KEY_ENV_ID = "env_id"
         const val KEY_PROJECT_NAME = "project_name"
         const val KEY_SURVEYOR_ID = "surveyor_id"
+        const val KEY_INSTALL_ID = "device_install_id"
     }
 }

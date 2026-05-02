@@ -36,6 +36,9 @@ interface ResponseQueueDao {
 
     @Query("SELECT surveyId, COUNT(*) AS total, SUM(CASE WHEN syncedAt IS NULL THEN 1 ELSE 0 END) AS pending FROM queued_responses GROUP BY surveyId")
     fun observePerSurveyCounts(): Flow<List<PerSurveyCount>>
+
+    @Query("SELECT COUNT(*) FROM queued_responses WHERE surveyorId = :surveyorId AND capturedAt >= :sinceMs")
+    suspend fun countSince(surveyorId: String, sinceMs: Long): Int
 }
 
 data class PerSurveyCount(val surveyId: String, val total: Int, val pending: Int)
