@@ -91,8 +91,11 @@ fun QrScanScreen(
                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                     QrCameraPreview { payload ->
                         if (vm.consume(payload)) {
-                            nav.navigate(Routes.SURVEYOR_ID) {
-                                popUpTo(Routes.ROLE) { inclusive = true }
+                            // Route through Splash so post-scan landing depends on whether the
+                            // device already has a surveyor id (-> survey list) or not
+                            // (-> ID entry). Pop everything so back can't return to the camera.
+                            nav.navigate(Routes.SPLASH) {
+                                popUpTo(0) { inclusive = true }
                             }
                         }
                     }

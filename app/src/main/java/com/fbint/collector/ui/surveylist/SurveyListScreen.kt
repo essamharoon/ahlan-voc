@@ -151,6 +151,10 @@ private fun OverflowMenu(nav: NavHostController, onReset: () -> Unit) {
             onClick = { expanded = false; nav.navigate(Routes.ADMIN_QR) },
         )
         DropdownMenuItem(
+            text = { Text("Scan setup QR") },
+            onClick = { expanded = false; nav.navigate(Routes.SURVEYOR_SCAN) },
+        )
+        DropdownMenuItem(
             text = { Text("Re-enter API key") },
             onClick = { expanded = false; nav.navigate(Routes.ADMIN_SETUP) },
         )
