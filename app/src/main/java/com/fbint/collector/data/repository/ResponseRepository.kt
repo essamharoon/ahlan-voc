@@ -106,10 +106,15 @@ class ResponseRepository @Inject constructor(
                 // Sanitize the magic "default" language at sync time too — old responses
                 // queued before the language fix shipped still carry it and the server 400s.
                 val sanitizedLang = sanitizeLanguageForServer(item.language, item.surveyId)
+                // Hidden field values must be merged INTO the data map keyed by field name.
+                // The server's public client API silently ignores the top-level `hiddenFields`
+                // request field — verified empirically. Question-answer values keep priority
+                // since their keys are CUIDs and won't collide with hidden field names.
+                val mergedData = hidden.filterValues { it != null } + finalData
                 val req = CreateResponseRequest(
                     surveyId = item.surveyId,
                     finished = item.finished,
-                    data = finalData,
+                    data = mergedData,
                     userId = item.surveyorId?.takeIf { it.isNotBlank() },
                     meta = mapOf(
                         "source" to "fbint:${item.clientUuid}",
@@ -117,7 +122,7 @@ class ResponseRepository @Inject constructor(
                     ),
                     language = sanitizedLang,
                     variables = variables.takeIf { it.isNotEmpty() },
-                    hiddenFields = hidden.takeIf { it.isNotEmpty() },
+                    hiddenFields = null,
                 )
                 val resp = api.createResponse(item.environmentId, req)
                 dao.markSynced(item.clientUuid, System.currentTimeMillis(), resp.data.id)
