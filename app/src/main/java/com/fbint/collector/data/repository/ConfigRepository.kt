@@ -56,6 +56,13 @@ class ConfigRepository @Inject constructor(
         prefs.edit().putString(KEY_SURVEYOR_ID, id.trim()).apply()
     }
 
+    /** Last successful auto-update check (epoch ms). 0 if never. Used to throttle. */
+    fun lastUpdateCheckMs(): Long = prefs.getLong(KEY_LAST_UPDATE_CHECK, 0L)
+
+    fun markUpdateCheckedNow() {
+        prefs.edit().putLong(KEY_LAST_UPDATE_CHECK, System.currentTimeMillis()).apply()
+    }
+
     /** Stable per-install UUID. Generated on first read, persists until uninstall. */
     fun deviceInstallId(): String {
         prefs.getString(KEY_INSTALL_ID, null)?.let { return it }
@@ -106,5 +113,6 @@ class ConfigRepository @Inject constructor(
         const val KEY_PROJECT_NAME = "project_name"
         const val KEY_SURVEYOR_ID = "surveyor_id"
         const val KEY_INSTALL_ID = "device_install_id"
+        const val KEY_LAST_UPDATE_CHECK = "last_update_check_ms"
     }
 }

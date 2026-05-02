@@ -117,23 +117,45 @@ class SurveyListViewModel @Inject constructor(
         config.clear()
     }
 
-    fun checkForUpdate() {
+    fun checkForUpdate() = runUpdateCheck(silent = false)
+
+    /**
+     * Silent check fired from app launch. Throttled to once every 6 hours so opening the app
+     * 50 times a day doesn't hammer the GitHub API or eat data. No UI on success/no-update —
+     * just shows the dialog if there's actually a newer build.
+     */
+    fun silentlyCheckOnLaunch() {
+        val sinceLast = System.currentTimeMillis() - config.lastUpdateCheckMs()
+        if (sinceLast < THROTTLE_WINDOW_MS) return
+        runUpdateCheck(silent = true)
+    }
+
+    private fun runUpdateCheck(silent: Boolean) {
         if (_update.value.checking || _update.value.downloading) return
-        _update.update { it.copy(checking = true, errorMessage = null, message = null) }
+        if (!silent) _update.update { it.copy(checking = true, errorMessage = null, message = null) }
         viewModelScope.launch {
             try {
                 val info = updateChecker.check()
+                config.markUpdateCheckedNow()
                 if (info == null) {
-                    _update.update { it.copy(checking = false, errorMessage = "Couldn't reach GitHub.") }
+                    if (!silent) {
+                        _update.update { it.copy(checking = false, errorMessage = "Couldn't reach GitHub.") }
+                    }
                 } else if (info.isNewer) {
                     _update.update { it.copy(checking = false, info = info) }
-                } else {
+                } else if (!silent) {
                     _update.update { it.copy(checking = false, message = "You're on the latest version (${info.installedVersion}).") }
                 }
             } catch (t: Throwable) {
-                _update.update { it.copy(checking = false, errorMessage = t.message ?: "Update check failed.") }
+                if (!silent) {
+                    _update.update { it.copy(checking = false, errorMessage = t.message ?: "Update check failed.") }
+                }
             }
         }
+    }
+
+    private companion object {
+        const val THROTTLE_WINDOW_MS = 6 * 60 * 60 * 1000L
     }
 
     fun dismissUpdate() {

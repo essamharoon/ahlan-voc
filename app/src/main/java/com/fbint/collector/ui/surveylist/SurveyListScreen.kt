@@ -53,6 +53,7 @@ fun SurveyListScreen(
 ) {
     val state by vm.state.collectAsState()
     val updateState by vm.updateState.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(Unit) { vm.silentlyCheckOnLaunch() }
     UpdateDialog(updateState, vm::downloadAndInstall, vm::dismissUpdate)
 
     Scaffold(
