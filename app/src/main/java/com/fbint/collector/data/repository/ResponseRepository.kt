@@ -80,19 +80,32 @@ class ResponseRepository @Inject constructor(
     /**
      * Sync everything currently pending. Skips responses whose bound files haven't all
      * uploaded yet (those will succeed on a later run after FileUploadWorker completes).
+     *
+     * Duplicate avoidance: each row is marked in-flight via `markSending` BEFORE the POST.
+     * `pendingOnce` excludes in-flight rows within [SENDING_STALE_MS], which prevents the
+     * periodic worker from re-POSTing a row that the one-shot worker is currently sending,
+     * and prevents a worker re-run after process death from duplicating a response whose
+     * server-side success we never recorded. On 4xx (request rejected, no row created)
+     * we clear `sendingAt` so the row can be retried on the next worker run; on
+     * network/5xx/429 we leave it set so the row stays in-flight until the stale window
+     * expires — Formbricks may have processed the request even though we got an error.
      */
     suspend fun syncPending(): SyncOutcome {
-        val pending = dao.pendingOnce()
+        val now = System.currentTimeMillis()
+        val pending = dao.pendingOnce(staleBefore = now - SENDING_STALE_MS)
         if (pending.isEmpty()) return SyncOutcome(0, 0, false)
         var synced = 0
         var failed = 0
         var retry = false
 
         for (item in pending) {
+            val rawData: Map<String, Any?>
+            val resolvedFiles: Map<String, com.fbint.collector.data.local.entity.QueuedFileEntity>
+            val req: CreateResponseRequest
             try {
-                val rawData: Map<String, Any?> = mapAdapter.fromJson(item.dataJson) ?: emptyMap()
+                rawData = mapAdapter.fromJson(item.dataJson) ?: emptyMap()
                 val placeholderIds = files.extractFilePlaceholders(rawData)
-                val resolvedFiles = if (placeholderIds.isEmpty()) emptyMap()
+                resolvedFiles = if (placeholderIds.isEmpty()) emptyMap()
                     else files.getByIds(placeholderIds).associateBy { it.clientUuid }
 
                 if (placeholderIds.any { id -> resolvedFiles[id]?.uploadedFileUrl.isNullOrBlank() }) {
@@ -118,7 +131,7 @@ class ResponseRepository @Inject constructor(
                 val allowed = survey?.hiddenFields?.fieldIds.orEmpty().toSet()
                 val filteredAutoStamps = autoStamps.filterKeys { it in allowed }
                 val mergedData = filteredAutoStamps + hidden.filterValues { it != null } + finalData
-                val req = CreateResponseRequest(
+                req = CreateResponseRequest(
                     surveyId = item.surveyId,
                     finished = item.finished,
                     data = mergedData,
@@ -131,14 +144,41 @@ class ResponseRepository @Inject constructor(
                     variables = variables.takeIf { it.isNotEmpty() },
                     hiddenFields = null,
                 )
+            } catch (t: Throwable) {
+                // Failure during payload prep — the POST never started, so leave sendingAt
+                // alone (it's still null) and just log the error.
+                failed++
+                dao.markFailure(item.clientUuid, (t.message ?: t.javaClass.simpleName).take(500))
+                if (!isFatal(t)) retry = true
+                continue
+            }
+
+            // Mark in-flight BEFORE the POST. From this point on, any concurrent worker
+            // (one-shot vs periodic, or a retry triggered by process death) will see this
+            // row's sendingAt within the stale window and skip it.
+            dao.markSending(item.clientUuid, System.currentTimeMillis())
+            try {
                 val resp = api.createResponse(item.environmentId, req)
                 dao.markSynced(item.clientUuid, System.currentTimeMillis(), resp.data.id)
                 synced++
                 resolvedFiles.keys.forEach { files.purgeUploadedFile(it) }
             } catch (t: Throwable) {
                 failed++
-                dao.markFailure(item.clientUuid, (t.message ?: t.javaClass.simpleName).take(500))
-                if (!isFatal(t)) retry = true
+                val msg = (t.message ?: t.javaClass.simpleName).take(500)
+                dao.markFailure(item.clientUuid, msg)
+                if (isFatal(t)) {
+                    // 4xx: server rejected the request — no response row was created, so
+                    // it's safe to clear in-flight and let a future worker retry without
+                    // waiting out the stale window. (Whether retry succeeds is a separate
+                    // problem; isFatal returning true means the worker won't reschedule
+                    // immediately, but the next periodic run will pick it up.)
+                    dao.clearSending(item.clientUuid)
+                } else {
+                    // Network / 5xx / 429: server may have processed the request even
+                    // though we got an error. Hold the in-flight marker so subsequent
+                    // worker runs within SENDING_STALE_MS won't re-POST and duplicate.
+                    retry = true
+                }
             }
         }
         return SyncOutcome(synced, failed, retry)
@@ -177,5 +217,18 @@ class ResponseRepository @Inject constructor(
 
     private companion object {
         const val STRUGGLE_THRESHOLD = 3
+
+        /**
+         * How long a row stays "in-flight" before the sync loop is willing to re-send it.
+         * Within this window, concurrent or retried worker runs will skip it — that's what
+         * prevents duplicate POSTs when the periodic worker fires while the one-shot worker
+         * is mid-flight, or when a 200 OK is lost and our `markSynced` write never lands.
+         *
+         * 10 minutes comfortably exceeds the connect+read timeouts (20s + 30s) and the
+         * one-shot worker's 30s exponential backoff, while still being short enough that
+         * a genuine network failure that the server never received gets retried in a
+         * sensible amount of time rather than sitting in the queue indefinitely.
+         */
+        const val SENDING_STALE_MS = 10L * 60 * 1000
     }
 }

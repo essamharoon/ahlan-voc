@@ -13,13 +13,32 @@ interface ResponseQueueDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(item: QueuedResponseEntity)
 
-    @Query("SELECT * FROM queued_responses WHERE syncedAt IS NULL ORDER BY capturedAt ASC")
-    suspend fun pendingOnce(): List<QueuedResponseEntity>
+    /**
+     * Pending rows excluding ones currently in-flight. A row is "in-flight" when its
+     * [QueuedResponseEntity.sendingAt] is more recent than [staleBefore] — within that
+     * window we assume a previous worker invocation may have already POSTed it (and the
+     * server may have created a response we never saw the 200 for), so re-sending would
+     * duplicate. Past the window we accept the small re-send risk to avoid losing data.
+     */
+    @Query(
+        "SELECT * FROM queued_responses " +
+            "WHERE syncedAt IS NULL AND (sendingAt IS NULL OR sendingAt < :staleBefore) " +
+            "ORDER BY capturedAt ASC"
+    )
+    suspend fun pendingOnce(staleBefore: Long): List<QueuedResponseEntity>
 
     @Query("UPDATE queued_responses SET attempts = attempts + 1, lastError = :error WHERE clientUuid = :id")
     suspend fun markFailure(id: String, error: String)
 
-    @Query("UPDATE queued_responses SET syncedAt = :ts, serverResponseId = :serverId, lastError = NULL WHERE clientUuid = :id")
+    /** Mark a row as in-flight just before the network call. */
+    @Query("UPDATE queued_responses SET sendingAt = :ts WHERE clientUuid = :id")
+    suspend fun markSending(id: String, ts: Long)
+
+    /** Clear in-flight marker — used after a confirmed-rejection (4xx) so retries aren't blocked. */
+    @Query("UPDATE queued_responses SET sendingAt = NULL WHERE clientUuid = :id")
+    suspend fun clearSending(id: String)
+
+    @Query("UPDATE queued_responses SET syncedAt = :ts, serverResponseId = :serverId, sendingAt = NULL, lastError = NULL WHERE clientUuid = :id")
     suspend fun markSynced(id: String, ts: Long, serverId: String)
 
     @Query("SELECT COUNT(*) FROM queued_responses WHERE syncedAt IS NULL")
