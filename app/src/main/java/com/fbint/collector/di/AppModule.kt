@@ -41,6 +41,7 @@ object AppModule {
     @Provides @Singleton
     fun provideDatabase(@ApplicationContext ctx: Context): AppDatabase =
         Room.databaseBuilder(ctx, AppDatabase::class.java, "fbint.db")
+            .addMigrations(AppDatabase.MIGRATION_3_4)
             .fallbackToDestructiveMigration()
             .build()
 

@@ -49,7 +49,7 @@ Android app for offline Formbricks survey collection at stadiums in KSA. Surveyo
   - `SurveyRefreshWorker` (every 6 h) refreshes survey definitions and pre-warms images.
   - `FileUploadWorker` (every 15 min) uploads queued files via the Formbricks public storage endpoint (handles S3 POST presign, S3 PUT presign, and self-hosted local PUT with signing headers).
   - `ResponseSyncWorker` (every 15 min) POSTs responses, but skips any whose bound files haven't finished uploading yet.
-- Captured-then-orphaned dedup: each response carries a stable client UUID in `meta.source = "fbint:<uuid>"` so server-side duplicates created by a "succeeded but reported as failure" retry can be cleaned up.
+- Captured-then-orphaned dedup: each response carries a stable client UUID in `meta.source = "fbint:<uuid>"`, plus a client-side in-flight marker (`queued_responses.sendingAt`, set just before each POST) keeps concurrent worker runs and retried POSTs from re-sending a row whose 200 OK we never saw — see "Why responses don't duplicate" below.
 
 **Sync status screen** — pending / synced / stuck counts plus a "sync now" button (kicks off both file-upload and response-sync one-shots).
 
@@ -185,9 +185,22 @@ The app does not compute a quality score on the device — that's tamper-bait. I
 
 Score starts at 100; subtract penalties; below 50 = manual review.
 
+## Why responses don't duplicate
+
+Formbricks' public `POST /responses` is not idempotent — there's no server-side dedup key, so any retry after a server-side success creates a fresh response. We saw this in production: pairs of identical submissions ~30 s apart on the same device, matching the one-shot `ResponseSyncWorker`'s exponential backoff. Causes that triggered it:
+
+- Periodic `ResponseSyncWorker` and the one-shot variant (different unique work names) both picking up the same pending row.
+- Process death between the POST returning 200 and our DB write recording it as synced.
+- A 200 OK lost on the way back to the device — the client throws, the row stays "pending", the next worker run re-POSTs.
+
+Mitigation is purely client-side (we don't control Formbricks):
+
+1. **Stable client UUID** in `meta.source = "fbint:<uuid>"` so any duplicate that does slip through is identifiable for manual cleanup.
+2. **In-flight marker** (`queued_responses.sendingAt`, added in DB v4) is set just before each POST. `ResponseQueueDao.pendingOnce` excludes rows whose `sendingAt` is within `SENDING_STALE_MS` (10 min) — so concurrent worker runs and process-death retries simply skip the row instead of re-POSTing. On a confirmed 4xx (no server row created) we clear the marker so the row can retry on the next run; on network/5xx/429 (server may have processed it anyway) we leave the marker set and accept a delayed retry.
+3. **Stale-window cap (10 min)** caps duplicate exposure: in the worst case where a 200 OK was genuinely lost AND the worker doesn't run again for >10 min, we'll retry once. We accept that bounded duplicate over the alternative of losing real responses to a stuck-forever in-flight marker.
+
 ## Known limits
 
-- POST `/responses` is not idempotent — a network blip after server-side success will create a duplicate. We mitigate by including the stable client UUID in `meta.source`; cleanup is manual on the server side.
 - Cal.com bookings render an offline-friendly "mark as booked" card because the iframe can't load offline. If you need true Cal scheduling, the surveyor should hand the respondent a phone with connectivity for that step.
 - The newer block/element survey shape isn't ingested yet — the v1 management API still emits the deprecated `questions[]` form, which is what we read.
 - `requireAnswer` logic actions are no-ops; static `required` is always honoured. (The runtime mutation is rare in field-collection workflows and would complicate offline state.)
